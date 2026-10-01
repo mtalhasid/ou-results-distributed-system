@@ -1,0 +1,16 @@
+services:
+  result-read-service:
+    build:
+      context: ./result-read-service
+      dockerfile: Dockerfile
+    profiles: ["read"]
+    environment:
+      SHARD_1_PRIMARY: ${SHARD_1_PRIMARY:?Set SHARD_1_PRIMARY in .env}
+      SHARD_2_PRIMARY: ${SHARD_2_PRIMARY:?Set SHARD_2_PRIMARY in .env}
+      SHARD_MAP_PATH: /app/config/shard-map.yml
+    ports:
+      - "8082:8082"
+    volumes:
+      - ./contracts/shard-map.yml:/app/config/shard-map.yml:ro
+    mem_limit: 768m
+    restart: unless-stopped

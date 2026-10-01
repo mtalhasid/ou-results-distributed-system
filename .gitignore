@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+.venv/
+**/target/
+**/node_modules/
+load-tests/seed/out/
+load-tests/results/html/
+.github/modernize/java-upgrade/
