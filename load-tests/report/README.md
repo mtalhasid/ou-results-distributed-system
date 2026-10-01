@@ -1,21 +1,32 @@
 # Load-test reports
 
 Generate the Markdown summary and comparison charts from the repeated k6 JSON
-exports in `load-tests/results/`:
+exports for one service profile:
 
 ```powershell
 pip install matplotlib
-python load-tests/report/make_report.py
+python load-tests/report/make_report.py --profile naive
 ```
 
 The script requires Python 3.10 or later and matplotlib. It has no network
 access requirements. It reads VU summaries named
 `<label>-<N>-run<i>.json` and arrival-rate summaries named
-`<label>-arrival-<P>-run<i>.json`; files without the `-run<i>` suffix, including
-the original unwarmed baseline exports, are ignored.
+`<label>-<mode>-arrival-<P>-run<i>.json`; older arrival names without a mode
+are treated as `uniform`. Historical `baseline-arrival-...` files are reported
+under `baseline-legacy`. Files without the `-run<i>` suffix, including the
+original unwarmed baseline exports, are ignored.
 
-It regenerates `load-tests/results/summary.md` with separate VU baseline and
-arrival-rate sections. It also writes charts to
-`load-tests/results/charts/`. If `load-tests/results/hikari-100.csv` exists, a
-HikariCP pending/active connection chart is generated as well. The separate
-`baseline-summary.md` report is not modified.
+The required `--profile` value is `naive` or `optimized`. The script reads only
+`load-tests/results/<profile>/` and writes that profile's `summary.md` and
+charts under `load-tests/results/<profile>/charts/`. It also includes
+`hikari-100.csv` from that profile when present. Arrival results are grouped by
+label and mode. Use repeatable aliases to merge or rename labels in a report,
+for example:
+
+```powershell
+python load-tests/report/make_report.py --profile naive --alias baseline-confirmation=baseline
+```
+
+Tables show latency in seconds to two decimal places. Arrival charts show
+individual run values as faint points, medians as lines, and iteration delivery
+percentage against a 100% reference.

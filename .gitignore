@@ -5,5 +5,5 @@
 **/target/
 **/node_modules/
 load-tests/seed/out/
-load-tests/results/html/
+load-tests/results/*/html/
 .github/modernize/java-upgrade/

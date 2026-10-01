@@ -1,17 +1,24 @@
 param(
-    [int[]]$Peaks = @(25, 50, 75, 100),
-    [ValidateRange(1, 100)][int]$Runs = 1,
+    [Parameter(Mandatory = $true)]
+    [ValidateSet("naive", "optimized")]
+    [string]$Profile,
+    [int[]]$Peaks = @(25, 50, 75),
+    [ValidateRange(1, 100)][int]$Runs = 3,
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9_-]*$')][string]$Label = "baseline",
+    [ValidateSet("uniform", "hot")][string]$Mode = "uniform",
     [string]$BaseUrl = "http://localhost:8082",
     [switch]$StopOnBreak,
-    [ValidateRange(1, 100000)][int]$MaxVus = 300
+    [ValidateRange(1, 100000)][int]$MaxVus = 300,
+    [ValidateRange(1, 3600)][int]$Timeout = 30
 )
 
 $ErrorActionPreference = "Stop"
+$Profile = $Profile.ToLowerInvariant()
+$Mode = $Mode.ToLowerInvariant()
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $manifestPath = Join-Path $repoRoot "load-tests\seed\out\seed-manifest.json"
 $scriptPath = Join-Path $repoRoot "load-tests\k6\read-arrival.js"
-$resultsDir = Join-Path $repoRoot "load-tests\results"
+$resultsDir = Join-Path $repoRoot "load-tests\results\$Profile"
 $htmlDir = Join-Path $resultsDir "html"
 
 if (-not (Get-Command k6 -ErrorAction SilentlyContinue)) {
@@ -75,19 +82,21 @@ try {
                 }
             }
 
-            $fileStem = "$Label-arrival-$peak-run$run"
+            $fileStem = "$Label-$Mode-arrival-$peak-run$run"
             $summaryPath = Join-Path $resultsDir "$fileStem.json"
-            $dashboardPath = "load-tests/results/html/$fileStem.html"
+            $dashboardPath = "load-tests/results/$Profile/html/$fileStem.html"
             $env:K6_WEB_DASHBOARD = "true"
             $env:K6_WEB_DASHBOARD_EXPORT = $dashboardPath
 
-            Write-Host "Starting arrival run: label=$Label, peak=$peak req/s, run=$run/$Runs"
+            Write-Host "Starting arrival run: label=$Label, mode=$Mode, peak=$peak req/s, timeout=${Timeout}s, run=$run/$Runs"
             Push-Location $repoRoot
             try {
                 & k6 run `
                     -e "PEAK=$peak" `
                     -e "BASE_URL=$BaseUrl" `
                     -e "MAXVUS=$MaxVus" `
+                    -e "MODE=$Mode" `
+                    -e "TIMEOUT=$Timeout" `
                     "--summary-export=$summaryPath" `
                     $scriptPath
             }
@@ -177,9 +186,9 @@ finally {
 if ($runResults.Count -gt 0) {
     $reportScript = Join-Path $repoRoot "load-tests\report\make_report.py"
     if (Get-Command python -ErrorAction SilentlyContinue) {
-        & python $reportScript
+        & python $reportScript --profile $Profile
     } elseif (Get-Command py -ErrorAction SilentlyContinue) {
-        & py -3 $reportScript
+        & py -3 $reportScript --profile $Profile
     } else {
         throw "Python 3 was not found on PATH; run load-tests\report\make_report.py to regenerate summaries."
     }

@@ -1,10 +1,10 @@
 package com.ouresults.read.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.ouresults.read.entity.ResultEntity;
-
 import java.math.BigDecimal;
 import java.time.LocalDate;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.ouresults.read.entity.ResultEntity;
 
 public record ResultResponse(
         String examId,

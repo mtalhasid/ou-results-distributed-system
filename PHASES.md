@@ -6,7 +6,7 @@ Read path first. Each phase ends with a checkpoint you can demo. Do not start th
 
 - Docs alongside, not at the end: update the README, the architecture diagram and the Postman collection as each phase lands.
 - Correlation ID and the logging format from spec section 14 go in from the first service, not later.
-- Every k6 run records: N users, p95 latency, error rate, requests per second, machine specs, date. Save results under `load-tests/results/`.
+- Every k6 run records: N users, p95 latency, error rate, requests per second, machine specs, date. Save results under `load-tests/results/<profile>/` (`naive` or `optimized`).
 - Warm the database with a few requests before each k6 run, and run naive vs optimized at the same N.
 - Use `mem_limit` in compose and compose profiles, so only the containers a test needs are running.
 - Cut rule: if Phase 2 is not done in about 2 weeks, stop adding scope until it is. If time runs short later, drop Phase 6 first, then Kafka.

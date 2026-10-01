@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import csv
+import argparse
 import json
 import math
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -23,10 +24,10 @@ RESULTS_DIR = ROOT / "load-tests" / "results"
 CHARTS_DIR = RESULTS_DIR / "charts"
 VU_PATTERN = re.compile(r"^(?P<label>.+)-(?P<vus>\d+)-run(?P<run>\d+)\.json$")
 ARRIVAL_PATTERN = re.compile(
-    r"^(?P<label>.+)-arrival-(?P<peak>\d+)-run(?P<run>\d+)\.json$"
+    r"^(?P<label>.+?)(?:-(?P<mode>uniform|hot))?-arrival-"
+    r"(?P<peak>\d+)-run(?P<run>\d+)\.json$"
 )
 MACHINE_PATTERN = re.compile(r"^- Machine:\s*(.+)$", re.MULTILINE)
-ARRIVAL_DURATION_SECONDS = 60
 CHART_SIZE = (16, 9)
 CHART_DPI = 100
 
@@ -45,6 +46,7 @@ class VuRun:
 @dataclass(frozen=True)
 class ArrivalRun:
     label: str
+    mode: str
     peak: int
     run: int
     p95_ms: float
@@ -53,8 +55,7 @@ class ArrivalRun:
     dropped_count: float
     dropped_rate: float
     max_vus: float
-    request_count: float
-    achieved_rps: float
+    delivered_pct: float
 
 
 def metric(
@@ -102,6 +103,11 @@ def read_summaries() -> tuple[list[VuRun], list[ArrivalRun]]:
         summary = json.loads(path.read_text(encoding="utf-8"))
         if arrival_match is not None:
             label = arrival_match.group("label")
+            mode = arrival_match.group("mode")
+            if mode is None:
+                if label == "baseline":
+                    label = "baseline-legacy"
+                mode = "uniform"
             peak = int(arrival_match.group("peak"))
             dropped = metric(
                 summary, "dropped_iterations", "count", default=-1.0
@@ -111,10 +117,14 @@ def read_summaries() -> tuple[list[VuRun], list[ArrivalRun]]:
                     summary, "dropped_iterations", "value", default=0.0
                 )
             expected = expected_arrivals(peak)
-            requests = metric(summary, "http_reqs", "count")
+            completed = metric(summary, "iterations", "count", default=-1.0)
+            if completed < 0:
+                completed = metric(summary, "http_reqs", "count")
+            completed_and_dropped = completed + dropped
             arrival_runs.append(
                 ArrivalRun(
                     label=label,
+                    mode=mode,
                     peak=peak,
                     run=int(arrival_match.group("run")),
                     p95_ms=metric(summary, "http_req_duration", "p(95)"),
@@ -123,8 +133,11 @@ def read_summaries() -> tuple[list[VuRun], list[ArrivalRun]]:
                     dropped_count=dropped,
                     dropped_rate=(dropped / expected) if expected else 0.0,
                     max_vus=metric(summary, "vus_max", "max"),
-                    request_count=requests,
-                    achieved_rps=requests / ARRIVAL_DURATION_SECONDS,
+                    delivered_pct=(
+                        100 * completed / completed_and_dropped
+                        if completed_and_dropped
+                        else 0.0
+                    ),
                 )
             )
             continue
@@ -143,7 +156,7 @@ def read_summaries() -> tuple[list[VuRun], list[ArrivalRun]]:
             )
 
     vu_runs.sort(key=lambda item: (item.label, item.vus, item.run))
-    arrival_runs.sort(key=lambda item: (item.label, item.peak, item.run))
+    arrival_runs.sort(key=lambda item: (item.label, item.mode, item.peak, item.run))
     return vu_runs, arrival_runs
 
 
@@ -157,10 +170,14 @@ def median(values: list[float]) -> float:
 
 def grouped_medians(
     runs: list[VuRun] | list[ArrivalRun], rate_name: str
-) -> dict[tuple[str, int], dict[str, float]]:
-    grouped: dict[tuple[str, int], list[VuRun | ArrivalRun]] = defaultdict(list)
+) -> dict[tuple[str, ...], dict[str, float]]:
+    grouped: dict[tuple[str, ...], list[VuRun | ArrivalRun]] = defaultdict(list)
     for run in runs:
-        grouped[(run.label, getattr(run, rate_name))].append(run)
+        if rate_name == "peak" and isinstance(run, ArrivalRun):
+            key = (run.label, run.mode, run.peak)
+        else:
+            key = (run.label, getattr(run, rate_name))
+        grouped[key].append(run)
 
     fields = (
         ("p95_ms", "p95_ms"),
@@ -174,7 +191,7 @@ def grouped_medians(
             ("dropped_count", "dropped_count"),
             ("dropped_rate", "dropped_rate"),
             ("max_vus", "max_vus"),
-            ("achieved_rps", "achieved_rps"),
+            ("delivered_pct", "delivered_pct"),
         )
     return {
         key: {
@@ -193,21 +210,6 @@ def machine_footer() -> str:
     return f"{machine} | {datetime.now().astimezone():%Y-%m-%d}"
 
 
-def label_color(label: str, fallback_index: int) -> str:
-    normalized = label.lower()
-    if "baseline" in normalized or "naive" in normalized:
-        return "#667085"
-    if "optimized" in normalized or "optimised" in normalized:
-        return "#16803c"
-    if "replica" in normalized:
-        return "#2563eb"
-    if "cache" in normalized:
-        return "#0f766e"
-    if "gateway" in normalized:
-        return "#7c3aed"
-    return matplotlib.colors.to_hex(plt.get_cmap("tab10").colors[fallback_index % 10])
-
-
 def style_axis(ax: plt.Axes) -> None:
     ax.set_facecolor("#f7f9fc")
     ax.grid(True, color="#d9e1ec", linewidth=0.8)
@@ -224,8 +226,27 @@ def style_axis(ax: plt.Axes) -> None:
 def save_chart(fig: plt.Figure, name: str, footer: str) -> None:
     fig.text(0.5, 0.025, footer, ha="center", va="bottom", fontsize=11, color="#536174")
     fig.tight_layout(rect=(0.06, 0.07, 0.97, 0.96))
-    fig.savefig(CHARTS_DIR / name, dpi=CHART_DPI, facecolor="white")
+    fig.savefig(
+        CHARTS_DIR / name,
+        dpi=CHART_DPI,
+        facecolor="white",
+        bbox_inches="tight",
+        pad_inches=0.12,
+    )
     plt.close(fig)
+
+
+def label_styles(labels: list[str]) -> dict[str, tuple[str, str]]:
+    markers = ["o", "s", "^", "D", "v", "P", "X", "*", "<", ">"]
+    palette = ["#667085", "#16803c"] + [
+        matplotlib.colors.to_hex(color)
+        for color in plt.get_cmap("tab20").colors
+        if matplotlib.colors.to_hex(color) not in {"#667085", "#16803c"}
+    ]
+    return {
+        label: (palette[index % len(palette)], markers[index % len(markers)])
+        for index, label in enumerate(labels)
+    }
 
 
 def render_vu_charts(medians: dict[tuple[str, int], dict[str, float]]) -> None:
@@ -235,18 +256,20 @@ def render_vu_charts(medians: dict[tuple[str, int], dict[str, float]]) -> None:
     CHARTS_DIR.mkdir(parents=True, exist_ok=True)
     labels = sorted({label for label, _ in medians})
     footer = machine_footer()
+    styles = label_styles(labels)
 
     fig, ax = plt.subplots(figsize=CHART_SIZE)
-    for index, label in enumerate(labels):
+    for label in labels:
         vus = sorted(vu for run_label, vu in medians if run_label == label)
+        color, marker = styles[label]
         ax.plot(
             vus,
             [medians[(label, vu)]["p95_ms"] for vu in vus],
-            marker="o",
+            marker=marker,
             linewidth=2.8,
             markersize=8,
             label=label,
-            color=label_color(label, index),
+            color=color,
         )
     p95_values = [values["p95_ms"] for values in medians.values() if values["p95_ms"] > 0]
     if p95_values and max(p95_values) / min(p95_values) > 10:
@@ -261,16 +284,17 @@ def render_vu_charts(medians: dict[tuple[str, int], dict[str, float]]) -> None:
     save_chart(fig, "p95-latency.png", footer)
 
     fig, ax = plt.subplots(figsize=CHART_SIZE)
-    for index, label in enumerate(labels):
+    for label in labels:
         vus = sorted(vu for run_label, vu in medians if run_label == label)
+        color, marker = styles[label]
         ax.plot(
             vus,
             [medians[(label, vu)]["requests_per_second"] for vu in vus],
-            marker="o",
+            marker=marker,
             linewidth=2.8,
             markersize=8,
             label=label,
-            color=label_color(label, index),
+            color=color,
         )
     ax.set(
         title="VU baseline: throughput",
@@ -287,8 +311,8 @@ def render_vu_charts(medians: dict[tuple[str, int], dict[str, float]]) -> None:
         [
             label,
             str(vus),
-            f"{values['p95_ms']:.1f}",
-            f"{values['average_ms']:.1f}",
+            f"{values['p95_ms'] / 1000:.2f}",
+            f"{values['average_ms'] / 1000:.2f}",
             f"{values['requests_per_second']:.2f}",
             f"{100 * values['error_rate']:.3f}%",
         ]
@@ -296,7 +320,7 @@ def render_vu_charts(medians: dict[tuple[str, int], dict[str, float]]) -> None:
     ]
     table = ax.table(
         cellText=rows,
-        colLabels=["Label", "VUs", "Median p95 (ms)", "Median avg (ms)", "Req/s", "Errors"],
+        colLabels=["Label", "VUs", "Median p95 (s)", "Median avg (s)", "Req/s", "Errors"],
         loc="center",
         cellLoc="center",
     )
@@ -307,6 +331,7 @@ def render_vu_charts(medians: dict[tuple[str, int], dict[str, float]]) -> None:
 
 def style_table(table: matplotlib.table.Table, font_size: int) -> None:
     table.auto_set_font_size(False)
+    table.auto_set_column_width([0])
     table.set_fontsize(font_size)
     table.scale(1.0, 1.9)
     for (row, _), cell in table.get_celld().items():
@@ -319,29 +344,44 @@ def style_table(table: matplotlib.table.Table, font_size: int) -> None:
             cell.set_text_props(color="#344054")
 
 
-def render_arrival_charts(medians: dict[tuple[str, int], dict[str, float]]) -> None:
+def render_arrival_charts(
+    runs: list[ArrivalRun],
+    medians: dict[tuple[str, ...], dict[str, float]],
+) -> None:
     if not medians:
         return
 
     CHARTS_DIR.mkdir(parents=True, exist_ok=True)
-    labels = sorted({label for label, _ in medians})
+    labels = sorted({key[0] for key in medians})
     footer = machine_footer()
-    rates_by_label = {
-        label: sorted(rate for run_label, rate in medians if run_label == label)
-        for label in labels
-    }
+    styles = label_styles(labels)
+    series = sorted({(key[0], key[1]) for key in medians})
 
     fig, ax = plt.subplots(figsize=CHART_SIZE)
-    for index, label in enumerate(labels):
-        rates = rates_by_label[label]
+    for label, mode in series:
+        rates = sorted(key[2] for key in medians if key[:2] == (label, mode))
+        color, marker = styles[label]
+        mode_runs = [run for run in runs if (run.label, run.mode) == (label, mode)]
+        for run in mode_runs:
+            ax.scatter(
+                run.peak,
+                run.p95_ms,
+                marker=marker,
+                s=42,
+                alpha=0.22,
+                color=color,
+                zorder=2,
+            )
         ax.plot(
             rates,
-            [medians[(label, rate)]["p95_ms"] for rate in rates],
-            marker="o",
+            [medians[(label, mode, rate)]["p95_ms"] for rate in rates],
+            marker=marker,
             linewidth=2.8,
             markersize=8,
-            label=label,
-            color=label_color(label, index),
+            linestyle="-" if mode == "uniform" else "--",
+            label=f"{label} ({mode})",
+            color=color,
+            zorder=3,
         )
     ax.set(
         title="Arrival-rate load: p95 latency",
@@ -349,29 +389,48 @@ def render_arrival_charts(medians: dict[tuple[str, int], dict[str, float]]) -> N
         ylabel="Median p95 latency (ms)",
     )
     style_axis(ax)
-    ax.legend(title="Run label", fontsize=12)
+    ax.legend(title="Run label / mode", fontsize=12)
     save_chart(fig, "arrival-p95.png", footer)
 
     fig, ax = plt.subplots(figsize=CHART_SIZE)
-    for index, label in enumerate(labels):
-        rates = rates_by_label[label]
-        color = label_color(label, index)
+    for label, mode in series:
+        rates = sorted(key[2] for key in medians if key[:2] == (label, mode))
+        color, marker = styles[label]
+        mode_runs = [run for run in runs if (run.label, run.mode) == (label, mode)]
+        for run in mode_runs:
+            ax.scatter(
+                run.peak,
+                100 * run.error_rate,
+                marker=marker,
+                s=38,
+                alpha=0.2,
+                color=color,
+            )
+            ax.scatter(
+                run.peak,
+                100 * run.dropped_rate,
+                marker=marker,
+                s=38,
+                alpha=0.2,
+                color=color,
+            )
         ax.plot(
             rates,
-            [100 * medians[(label, rate)]["error_rate"] for rate in rates],
-            marker="o",
+            [100 * medians[(label, mode, rate)]["error_rate"] for rate in rates],
+            marker=marker,
             linewidth=2.5,
             color=color,
-            label=f"{label} errors",
+            linestyle="-" if mode == "uniform" else "--",
+            label=f"{label} ({mode}) errors",
         )
         ax.plot(
             rates,
-            [100 * medians[(label, rate)]["dropped_rate"] for rate in rates],
-            marker="x",
-            linestyle="--",
+            [100 * medians[(label, mode, rate)]["dropped_rate"] for rate in rates],
+            marker=marker,
+            linestyle=":" if mode == "uniform" else "-.",
             linewidth=2.5,
             color=color,
-            label=f"{label} dropped iterations",
+            label=f"{label} ({mode}) dropped",
         )
     ax.set(
         title="Arrival-rate load: errors and dropped iterations",
@@ -383,23 +442,36 @@ def render_arrival_charts(medians: dict[tuple[str, int], dict[str, float]]) -> N
     save_chart(fig, "arrival-errors.png", footer)
 
     fig, ax = plt.subplots(figsize=CHART_SIZE)
-    all_rates = sorted({rate for _, rate in medians})
-    ax.plot(all_rates, all_rates, color="#667085", linestyle=":", linewidth=2.5, label="Ideal")
-    for index, label in enumerate(labels):
-        rates = rates_by_label[label]
+    ax.axhline(100, color="#667085", linestyle=":", linewidth=2.5, label="100% delivered")
+    for label, mode in series:
+        rates = sorted(key[2] for key in medians if key[:2] == (label, mode))
+        color, marker = styles[label]
+        mode_runs = [run for run in runs if (run.label, run.mode) == (label, mode)]
+        for run in mode_runs:
+            ax.scatter(
+                run.peak,
+                run.delivered_pct,
+                marker=marker,
+                s=42,
+                alpha=0.22,
+                color=color,
+                zorder=2,
+            )
         ax.plot(
             rates,
-            [medians[(label, rate)]["achieved_rps"] for rate in rates],
-            marker="o",
+            [medians[(label, mode, rate)]["delivered_pct"] for rate in rates],
+            marker=marker,
             linewidth=2.8,
             markersize=8,
-            label=label,
-            color=label_color(label, index),
+            linestyle="-" if mode == "uniform" else "--",
+            label=f"{label} ({mode})",
+            color=color,
+            zorder=3,
         )
     ax.set(
-        title="Arrival-rate load: achieved throughput",
+        title="Arrival-rate load: scheduled iterations delivered",
         xlabel="Target peak request rate (req/s)",
-        ylabel=f"Achieved throughput (req/s; requests / {ARRIVAL_DURATION_SECONDS} s)",
+        ylabel="Completed / (completed + dropped) (%)",
     )
     style_axis(ax)
     ax.legend(title="Run label", fontsize=12)
@@ -410,31 +482,35 @@ def render_arrival_charts(medians: dict[tuple[str, int], dict[str, float]]) -> N
     rows = [
         [
             label,
+            mode,
             str(rate),
-            f"{values['p95_ms']:.1f}",
-            f"{values['average_ms']:.1f}",
+            f"{values['p95_ms'] / 1000:.2f}",
+            f"{values['average_ms'] / 1000:.2f}",
             f"{100 * values['error_rate']:.2f}%",
             f"{100 * values['dropped_rate']:.2f}%",
+            f"{values['delivered_pct']:.2f}%",
             f"{values['max_vus']:.0f}",
         ]
-        for (label, rate), values in sorted(medians.items())
+        for (label, mode, rate), values in sorted(medians.items())
     ]
     table = ax.table(
         cellText=rows,
         colLabels=[
             "Label",
+            "Mode",
             "Peak req/s",
-            "Median p95 (ms)",
-            "Median avg (ms)",
+            "Median p95 (s)",
+            "Median avg (s)",
             "Errors",
             "Dropped",
+            "Delivered",
             "Max VUs",
         ],
         loc="center",
         cellLoc="center",
     )
     style_table(table, font_size=13)
-    ax.set_title("Arrival-rate summary (median per label and peak)", fontsize=20, pad=25)
+    ax.set_title("Arrival-rate summary (median per label, mode, and peak)", fontsize=20, pad=25)
     save_chart(fig, "arrival-summary-table.png", footer)
 
 
@@ -476,6 +552,8 @@ def render_hikari_chart() -> None:
 
 
 def write_summary(
+    vu_runs: list[VuRun],
+    arrival_runs: list[ArrivalRun],
     vu_medians: dict[tuple[str, int], dict[str, float]],
     arrival_medians: dict[tuple[str, int], dict[str, float]],
 ) -> None:
@@ -486,51 +564,128 @@ def write_summary(
         "",
         "## VU baseline",
         "",
-        "Values are medians across matching `-run<i>.json` files. Latencies are milliseconds; errors are percentages.",
+        "Values are medians across matching `-run<i>.json` files. Latencies are seconds; errors are percentages.",
         "",
-        "| Label | VUs | Median p95 (ms) | Median avg (ms) | Requests/s | Error rate |",
+        "| Label | VUs | Median p95 (s) | Median avg (s) | Requests/s | Error rate |",
         "|---|---:|---:|---:|---:|---:|",
     ]
     for (label, vus), values in sorted(vu_medians.items()):
         lines.append(
-            f"| {label} | {vus} | {values['p95_ms']:.2f} | {values['average_ms']:.2f} "
+            f"| {label} | {vus} | {values['p95_ms'] / 1000:.2f} | {values['average_ms'] / 1000:.2f} "
             f"| {values['requests_per_second']:.2f} | {100 * values['error_rate']:.3f}% |"
         )
     if not vu_medians:
         lines.append("| _No VU run files found._ | | | | | |")
+    else:
+        lines.extend(
+            [
+                "",
+                "### Individual VU runs",
+                "",
+                "| Label | VUs | Run | p95 (s) | Average (s) | Requests/s | Errors |",
+                "|---|---:|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for run in vu_runs:
+            lines.append(
+                f"| {run.label} | {run.vus} | {run.run} | {run.p95_ms / 1000:.2f} "
+                f"| {run.average_ms / 1000:.2f} | {run.requests_per_second:.2f} "
+                f"| {100 * run.error_rate:.3f}% |"
+            )
 
     lines.extend(
         [
             "",
             "## Arrival-rate runs",
             "",
-            f"Values are medians across matching `-arrival-<P>-run<i>.json` files. Achieved throughput is `http_reqs.count / {ARRIVAL_DURATION_SECONDS} seconds`; dropped-iteration percentage uses expected arrivals from the configured rate stages.",
+            "Values are grouped by label and mode, then medianed across matching runs. Latencies are in seconds; dropped-iteration percentage uses expected arrivals from the configured rate stages.",
             "",
-            "| Label | Peak req/s | Median p95 (ms) | Median avg (ms) | Error rate | Dropped iterations | Max VUs |",
-            "|---|---:|---:|---:|---:|---:|---:|",
+            "| Label | Mode | Peak req/s | Median p95 (s) | Median avg (s) | Error rate | Dropped iterations | Delivered | Max VUs |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
-    for (label, peak), values in sorted(arrival_medians.items()):
+    for (label, mode, peak), values in sorted(arrival_medians.items()):
         lines.append(
-            f"| {label} | {peak} | {values['p95_ms']:.2f} | {values['average_ms']:.2f} "
+            f"| {label} | {mode} | {peak} | {values['p95_ms'] / 1000:.2f} | {values['average_ms'] / 1000:.2f} "
             f"| {100 * values['error_rate']:.3f}% | {100 * values['dropped_rate']:.3f}% "
-            f"({values['dropped_count']:.0f}) | {values['max_vus']:.0f} |"
+            f"({values['dropped_count']:.0f}) | {values['delivered_pct']:.2f}% | {values['max_vus']:.0f} |"
         )
     if not arrival_medians:
-        lines.append("| _No arrival-rate run files found._ | | | | | | |")
+        lines.append("| _No arrival-rate run files found._ | | | | | | | | |")
+    else:
+        lines.extend(
+            [
+                "",
+                "### Individual arrival-rate runs",
+                "",
+                "| Label | Mode | Peak req/s | Run | p95 (s) | Average (s) | Errors | Dropped iterations | Delivered | Max VUs |",
+                "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for run in arrival_runs:
+            lines.append(
+                f"| {run.label} | {run.mode} | {run.peak} | {run.run} "
+                f"| {run.p95_ms / 1000:.2f} | {run.average_ms / 1000:.2f} "
+                f"| {100 * run.error_rate:.3f}% | {100 * run.dropped_rate:.3f}% "
+                f"({run.dropped_count:.0f}) | {run.delivered_pct:.2f}% | {run.max_vus:.0f} |"
+            )
 
     (RESULTS_DIR / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def parse_aliases(values: list[str]) -> dict[str, str]:
+    aliases = {}
+    for value in values:
+        old, separator, new = value.partition("=")
+        if not separator or not old.strip() or not new.strip():
+            raise ValueError(f"Invalid --alias {value!r}; expected OLD=NEW.")
+        aliases[old.strip()] = new.strip()
+    return aliases
+
+
+def apply_aliases(
+    vu_runs: list[VuRun],
+    arrival_runs: list[ArrivalRun],
+    aliases: dict[str, str],
+) -> tuple[list[VuRun], list[ArrivalRun]]:
+    return (
+        [replace(run, label=aliases.get(run.label, run.label)) for run in vu_runs],
+        [replace(run, label=aliases.get(run.label, run.label)) for run in arrival_runs],
+    )
+
+
 def main() -> int:
+    global RESULTS_DIR, CHARTS_DIR
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--profile",
+        choices=("naive", "optimized"),
+        required=True,
+        help="service profile whose run results should be reported",
+    )
+    parser.add_argument(
+        "--alias",
+        action="append",
+        default=[],
+        metavar="OLD=NEW",
+        help="rename a result label (repeatable)",
+    )
+    args = parser.parse_args()
+
+    RESULTS_DIR = ROOT / "load-tests" / "results" / args.profile
+    CHARTS_DIR = RESULTS_DIR / "charts"
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     vu_runs, arrival_runs = read_summaries()
+    vu_runs, arrival_runs = apply_aliases(
+        vu_runs, arrival_runs, parse_aliases(args.alias)
+    )
     vu_medians = grouped_medians(vu_runs, "vus")
     arrival_medians = grouped_medians(arrival_runs, "peak")
 
-    write_summary(vu_medians, arrival_medians)
+    write_summary(vu_runs, arrival_runs, vu_medians, arrival_medians)
     render_vu_charts(vu_medians)
-    render_arrival_charts(arrival_medians)
+    render_arrival_charts(arrival_runs, arrival_medians)
     render_hikari_chart()
     print(
         f"Wrote summary for {len(vu_runs)} VU runs and "

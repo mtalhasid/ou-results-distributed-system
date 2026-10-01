@@ -1,10 +1,14 @@
 param(
+    [Parameter(Mandatory = $true)]
+    [ValidateSet("naive", "optimized")]
+    [string]$Profile,
     [string]$BaseUrl = "http://localhost:8082"
 )
 
 $ErrorActionPreference = "Stop"
+$Profile = $Profile.ToLowerInvariant()
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$resultsDir = Join-Path $repoRoot "load-tests\results"
+$resultsDir = Join-Path $repoRoot "load-tests\results\$Profile"
 $csvPath = Join-Path $resultsDir "hikari-100.csv"
 $k6Script = Join-Path $repoRoot "load-tests\k6\read-baseline.js"
 $metricsBase = "$($BaseUrl.TrimEnd('/'))/actuator/metrics"

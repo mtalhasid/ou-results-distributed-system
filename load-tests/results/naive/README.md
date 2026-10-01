@@ -8,6 +8,7 @@
 - Java: Temurin OpenJDK `25.0.4.1`; the project compiles for Java 21.
 - Spring profile: `naive`.
 - Datasources: reads route to the two Neon shard primary URLs; the read replicas are not used.
+- Redis for Phase 1: not used; these tests involve no Docker or Upstash Redis instance or Redis region. Redis is reserved for later cache/state scope.
 - HikariCP: default configuration, no pool-size overrides. HikariCP's default `maximumPoolSize` is 10 per shard pool and, when unset, `minimumIdle` defaults to the maximum. The observation script reads and prints the effective `maximumPoolSize` from Actuator before its run; record that output with the measurements.
 - Machine: Windows 11 Home Single Language, 12th Gen Intel Core i5-1235U, 15.7 GB RAM.
 - k6: `v2.2.0 (commit/00a9a1b7f5, windows/amd64)`.
@@ -31,12 +32,13 @@
 4. In another PowerShell window, run the controlled warmed repetitions:
 
    ```powershell
-   .\load-tests\k6\run-baseline.ps1
+   .\load-tests\k6\run-baseline.ps1 -Profile naive
    ```
 
    This warms one seeded roll number on each shard five times before every run,
    runs 25, 50, and 100 VUs three times each, waits 20 seconds between
-   repetitions, and writes per-run k6 summaries plus `baseline-summary.md`.
+   repetitions, and writes per-run k6 JSON summaries plus the combined
+   `load-tests\results\naive\summary.md` report.
 
 The naive and optimized comparisons must use the same machine, Java runtime,
 JVM flags, k6 version, shard database setup, load profile, warm-up procedure,
@@ -51,19 +53,26 @@ The service exposes Actuator metrics read-only; no pool behavior or size is
 changed. After rebuilding/restarting the service, run:
 
 ```powershell
-.\load-tests\k6\run-hikari-observation.ps1
+.\load-tests\k6\run-hikari-observation.ps1 -Profile naive
 ```
 
 It samples `hikaricp.connections.pending` and
 `hikaricp.connections.active` every two seconds during one 100-VU run and
-writes `hikari-100.csv`.
+writes `load-tests\results\naive\hikari-100.csv`.
 
 ## Fixed arrival-rate spike scenario
 
 The separate `read-arrival.js` test offers a fixed request arrival rate:
 20 seconds ramping to 25% of PEAK, 5 seconds to PEAK, 30 seconds holding
-PEAK, then 5 seconds ramping to zero. The runner defaults to peaks of 25, 50,
-75, and 100 requests/second, one run each. Unlike a VU-based test, the offered
+PEAK, then 5 seconds ramping to zero. The runner defaults to peaks of 25, 50, and 75 requests/second, three runs
+each. `MODE` defaults to `uniform`, matching the original behavior: about 95%
+of requests choose a random valid roll number and about 5% use an invalid key.
+`MODE=hot` instead sends about 95% of requests to a deterministic `HOT_SET`
+(default 3000) of valid roll numbers sampled at even intervals across the full
+manifest key space, covering all listed colleges and both shards. `TIMEOUT`
+defaults to 30 seconds; timed-out requests count as request errors.
+
+Unlike a VU-based test, the offered
 request rate does not decrease just because the service slows down; this
 models students continuing to arrive during a result-day spike. `MAXVUS`
 (default 300) caps concurrent VUs and therefore the number of concurrent
@@ -75,29 +84,36 @@ hidden.
 From the repository root, run the default repeated baseline:
 
 ```powershell
-.\load-tests\k6\run-arrival.ps1
+.\load-tests\k6\run-arrival.ps1 -Profile naive
 ```
 
-To choose peaks, repeat selected rates, or stop immediately after any run
-crosses a breaking-point threshold:
+To choose peaks, mode, timeout, repeat selected rates, or stop immediately
+after any run crosses a breaking-point threshold:
 
 ```powershell
-.\load-tests\k6\run-arrival.ps1 -Peaks 25,50,75,100 -Runs 1 -Label baseline -StopOnBreak
-.\load-tests\k6\run-arrival.ps1 -Peaks 75,100 -Runs 3 -Label baseline -MaxVus 300 -StopOnBreak
+.\load-tests\k6\run-arrival.ps1 -Profile naive -Peaks 25,50,75 -Runs 3 -Label baseline -Mode uniform
+.\load-tests\k6\run-arrival.ps1 -Profile naive -Peaks 25,50 -Runs 3 -Label baseline -Mode hot -MaxVus 300 -Timeout 30
 ```
+
+Use `-Profile optimized` when running the same tests against the optimized
+service. Each profile writes only to its matching results directory.
 
 Naive and optimized comparisons must use the same arrival script, PEAK values,
 MAXVUS, machine, Java/JVM setup, k6 version, shard database setup, warm-up,
-and run timing. The report is regenerated from the matching
-`<label>-arrival-<peak>-run<run>.json` files by the runner.
+and run timing. The report is regenerated from matching
+`<label>-<mode>-arrival-<peak>-run<run>.json` files by the runner. Older
+arrival result names without an explicit mode are treated as `uniform` and
+legacy baseline files are labeled `baseline-legacy` in the report.
 
 ## Reports and dashboard exports
 
 Both load-test runners export a self-contained k6 dashboard HTML file under
-`load-tests/results/html/` for each repeated run. They temporarily enable
+`load-tests/results/<profile>/html/` for each repeated run. They temporarily
+enable
 `K6_WEB_DASHBOARD` and `K6_WEB_DASHBOARD_EXPORT` and restore their previous
 values when the run finishes or fails. `load-tests/report/make_report.py`
 reads only repeated JSON files matching `-run<i>.json`, then regenerates
-`summary.md` and PNG comparisons under `load-tests/results/charts/`. The
-historical unwarmed `baseline-25.json`, `baseline-50.json`, and
+`summary.md` and PNG comparisons under `load-tests/results/<profile>/charts/`.
+Pass `--profile naive` or `--profile optimized` when running the report directly.
+The historical unwarmed `baseline-25.json`, `baseline-50.json`, and
 `baseline-100.json` files are left untouched and excluded.
