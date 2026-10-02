@@ -1,3 +1,28 @@
+# Results
+
+The naive profile delivered 50 req/s with a median p95 of 0.60 s in the latest uniform session. At 75 req/s, p95 reached 6.38 s in hot mode and 6.91 s in uniform mode, with 19.708% and 7.039% of arrivals dropped respectively; one uniform run recorded 13.814% errors with the 10 s client timeout. The baseline-legacy and baseline-confirmation results at 50 req/s (12.55 s and 3.25 s p95) are earlier, slower sessions kept for reference, and predate the timeout setting. The minimum observed latency is about 254 ms, most likely dominated by the round trip to Neon.
+
+### Arrival-rate tests
+
+These charts compare latency, delivered arrivals, errors/drops, and the per-mode summary.
+
+![Arrival-rate p95 latency](charts/arrival-p95.png)
+![Arrival-rate delivered percentage](charts/arrival-achieved.png)
+![Arrival-rate errors and dropped iterations](charts/arrival-errors.png)
+![Arrival-rate summary table](charts/arrival-summary-table.png)
+
+### Fixed-user tests
+
+These charts show p95 latency, throughput, and the fixed-user summary across VU levels.
+
+![Fixed-user p95 latency](charts/p95-latency.png)
+![Fixed-user throughput](charts/throughput.png)
+![Fixed-user summary table](charts/summary-table.png)
+
+**Test conditions:** Windows 11 Home Single Language, 12th Gen Intel Core i5-1235U, 15.7 GB RAM; naive profile; Neon shard primaries; 10 s client timeout for hot and uniform arrival runs.
+
+See [summary.md](summary.md) for the full tables.
+
 # Naive read baseline run record
 
 ## Environment used for the initial baseline
@@ -13,6 +38,7 @@
 - Machine: Windows 11 Home Single Language, 12th Gen Intel Core i5-1235U, 15.7 GB RAM.
 - k6: `v2.2.0 (commit/00a9a1b7f5, windows/amd64)`.
 - Initial run date: 2026-10-01.
+- Latest session: 2026-10-02, laptop plugged in, best performance.
 
 ## How to reproduce
 
@@ -38,14 +64,15 @@
    This warms one seeded roll number on each shard five times before every run,
    runs 25, 50, and 100 VUs three times each, waits 20 seconds between
    repetitions, and writes per-run k6 JSON summaries plus the combined
-   `load-tests\results\naive\summary.md` report.
+   `load-tests\results\naive\summary.md` report. Raw k6 JSON exports are
+   written under `load-tests\results\naive\raw\`.
 
 The naive and optimized comparisons must use the same machine, Java runtime,
 JVM flags, k6 version, shard database setup, load profile, warm-up procedure,
 and test timing. Report those conditions with both result sets. The initial
-`baseline-25.json`, `baseline-50.json`, and `baseline-100.json` are historical
-unwarmed runs and are intentionally preserved separately from the repeated
-warmed runs.
+`raw/baseline-25.json`, `raw/baseline-50.json`, and `raw/baseline-100.json` are
+historical unwarmed runs and are intentionally preserved separately from the
+repeated warmed runs.
 
 ## Optional Hikari observation
 
@@ -58,7 +85,7 @@ changed. After rebuilding/restarting the service, run:
 
 It samples `hikaricp.connections.pending` and
 `hikaricp.connections.active` every two seconds during one 100-VU run and
-writes `load-tests\results\naive\hikari-100.csv`.
+writes `load-tests\results\naive\raw\hikari-100.csv`.
 
 ## Fixed arrival-rate spike scenario
 
@@ -91,8 +118,8 @@ To choose peaks, mode, timeout, repeat selected rates, or stop immediately
 after any run crosses a breaking-point threshold:
 
 ```powershell
-.\load-tests\k6\run-arrival.ps1 -Profile naive -Peaks 25,50,75 -Runs 3 -Label baseline -Mode uniform
-.\load-tests\k6\run-arrival.ps1 -Profile naive -Peaks 25,50 -Runs 3 -Label baseline -Mode hot -MaxVus 300 -Timeout 30
+.\load-tests\k6\run-arrival.ps1 -Profile naive -Peaks 25,50,75 -Runs 3 -Label baseline -Mode uniform -Timeout 10s
+.\load-tests\k6\run-arrival.ps1 -Profile naive -Peaks 25,50,75 -Runs 3 -Label baseline -Mode hot -Timeout 10s
 ```
 
 Use `-Profile optimized` when running the same tests against the optimized
@@ -101,7 +128,8 @@ service. Each profile writes only to its matching results directory.
 Naive and optimized comparisons must use the same arrival script, PEAK values,
 MAXVUS, machine, Java/JVM setup, k6 version, shard database setup, warm-up,
 and run timing. The report is regenerated from matching
-`<label>-<mode>-arrival-<peak>-run<run>.json` files by the runner. Older
+`<label>-<mode>-arrival-<peak>-run<run>.json` files under
+`load-tests/results/<profile>/raw/` by the runner. Older
 arrival result names without an explicit mode are treated as `uniform` and
 legacy baseline files are labeled `baseline-legacy` in the report.
 
@@ -112,8 +140,9 @@ Both load-test runners export a self-contained k6 dashboard HTML file under
 enable
 `K6_WEB_DASHBOARD` and `K6_WEB_DASHBOARD_EXPORT` and restore their previous
 values when the run finishes or fails. `load-tests/report/make_report.py`
-reads only repeated JSON files matching `-run<i>.json`, then regenerates
+reads only repeated JSON files under `load-tests/results/<profile>/raw/`
+matching `-run<i>.json`, then regenerates
 `summary.md` and PNG comparisons under `load-tests/results/<profile>/charts/`.
 Pass `--profile naive` or `--profile optimized` when running the report directly.
-The historical unwarmed `baseline-25.json`, `baseline-50.json`, and
-`baseline-100.json` files are left untouched and excluded.
+The historical unwarmed `raw/baseline-25.json`, `raw/baseline-50.json`, and
+`raw/baseline-100.json` files are left untouched and excluded.

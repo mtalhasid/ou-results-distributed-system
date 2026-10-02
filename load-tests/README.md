@@ -10,8 +10,13 @@ load-tests/
   report/      Shared report generator
   seed/        Shared generator and manifest
   results/
-    naive/     Fixed baseline JSON, summaries, charts, and HTML exports
-    optimized/ Optimized-profile results
+    naive/     Fixed baseline summaries and charts
+      raw/     Raw k6 JSON and Hikari CSV files
+      html/    k6 dashboard exports
+    optimized/ Optimized-profile summaries and charts
+      raw/     Raw k6 JSON and Hikari CSV files
+      html/    k6 dashboard exports
+    comparison/ Cross-profile charts and comparison README
 ```
 
 From the repository root, with the read service running in the selected
@@ -30,4 +35,6 @@ python .\load-tests\report\make_report.py --profile naive
 python .\load-tests\report\make_report.py --profile optimized
 ```
 
-Each runner/report reads and writes only the selected profile's folder.
+Each runner writes raw measurement files to that profile's `raw/` folder and
+dashboard exports to its `html/` folder. Report generators read from `raw/` and
+write summaries and charts to the profile folder.

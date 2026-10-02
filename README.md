@@ -5,6 +5,9 @@ The project starts with a deliberately naive read path, measures its limits,
 then adds protections in later phases. All result data is synthetic; this is
 not a production OU portal.
 
+For copy-pasteable setup, run, test, report, and Git commands, see the
+[repository command reference](./docs/commands.md).
+
 ## Phase 1: naive read baseline
 
 Phase 1 consists of deterministic synthetic data, two Postgres shards, a
@@ -64,12 +67,12 @@ Warm it with a few requests, then run the load test (install k6 separately):
 ```powershell
 curl.exe http://localhost:8082/api/results/160423733001
 k6 run -e VUS=100 -e BASE_URL=http://localhost:8082 `
-  --summary-export=load-tests/results/naive/baseline-100.json `
+  --summary-export=load-tests/results/naive/raw/baseline-100.json `
   .\load-tests\k6\read-baseline.js
 ```
 
 Repeat at increasing `VUS` values, saving each summary under
-`load-tests/results/naive/`. Record VUs, p95, error rate, requests/second, machine
+`load-tests/results/naive/raw/`. Record VUs, p95, error rate, requests/second, machine
 specifications, and date. The 5% non-existent roll numbers use valid known
 college codes and should return an empty list, not an HTTP error. Stop the
 service with Ctrl+C in the launcher window.

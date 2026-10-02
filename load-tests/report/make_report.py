@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS_DIR = ROOT / "load-tests" / "results"
+RAW_DIR = RESULTS_DIR / "raw"
 CHARTS_DIR = RESULTS_DIR / "charts"
 VU_PATTERN = re.compile(r"^(?P<label>.+)-(?P<vus>\d+)-run(?P<run>\d+)\.json$")
 ARRIVAL_PATTERN = re.compile(
@@ -91,10 +92,10 @@ def expected_arrivals(peak: int) -> float:
 def read_summaries() -> tuple[list[VuRun], list[ArrivalRun]]:
     vu_runs = []
     arrival_runs = []
-    if not RESULTS_DIR.exists():
+    if not RAW_DIR.exists():
         return vu_runs, arrival_runs
 
-    for path in sorted(RESULTS_DIR.glob("*.json")):
+    for path in sorted(RAW_DIR.glob("*.json")):
         arrival_match = ARRIVAL_PATTERN.fullmatch(path.name)
         vu_match = VU_PATTERN.fullmatch(path.name)
         if arrival_match is None and vu_match is None:
@@ -515,7 +516,7 @@ def render_arrival_charts(
 
 
 def render_hikari_chart() -> None:
-    csv_path = RESULTS_DIR / "hikari-100.csv"
+    csv_path = RAW_DIR / "hikari-100.csv"
     if not csv_path.exists():
         return
 
@@ -561,22 +562,25 @@ def write_summary(
         "# Load Test Summary",
         "",
         f"Generated: {datetime.now().astimezone():%Y-%m-%d %H:%M:%S %Z}",
-        "",
-        "## VU baseline",
-        "",
-        "Values are medians across matching `-run<i>.json` files. Latencies are seconds; errors are percentages.",
-        "",
-        "| Label | VUs | Median p95 (s) | Median avg (s) | Requests/s | Error rate |",
-        "|---|---:|---:|---:|---:|---:|",
     ]
-    for (label, vus), values in sorted(vu_medians.items()):
-        lines.append(
-            f"| {label} | {vus} | {values['p95_ms'] / 1000:.2f} | {values['average_ms'] / 1000:.2f} "
-            f"| {values['requests_per_second']:.2f} | {100 * values['error_rate']:.3f}% |"
+
+    if vu_medians:
+        lines.extend(
+            [
+                "",
+                "## VU baseline",
+                "",
+                "Values are medians across matching `-run<i>.json` files. Latencies are seconds; errors are percentages.",
+                "",
+                "| Label | VUs | Median p95 (s) | Median avg (s) | Requests/s | Error rate |",
+                "|---|---:|---:|---:|---:|---:|",
+            ]
         )
-    if not vu_medians:
-        lines.append("| _No VU run files found._ | | | | | |")
-    else:
+        for (label, vus), values in sorted(vu_medians.items()):
+            lines.append(
+                f"| {label} | {vus} | {values['p95_ms'] / 1000:.2f} | {values['average_ms'] / 1000:.2f} "
+                f"| {values['requests_per_second']:.2f} | {100 * values['error_rate']:.3f}% |"
+            )
         lines.extend(
             [
                 "",
@@ -655,7 +659,7 @@ def apply_aliases(
 
 
 def main() -> int:
-    global RESULTS_DIR, CHARTS_DIR
+    global RESULTS_DIR, RAW_DIR, CHARTS_DIR
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -674,6 +678,7 @@ def main() -> int:
     args = parser.parse_args()
 
     RESULTS_DIR = ROOT / "load-tests" / "results" / args.profile
+    RAW_DIR = RESULTS_DIR / "raw"
     CHARTS_DIR = RESULTS_DIR / "charts"
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     vu_runs, arrival_runs = read_summaries()

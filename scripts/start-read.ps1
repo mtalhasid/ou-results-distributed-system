@@ -1,9 +1,12 @@
 param(
+    [ValidateSet("naive", "optimized")]
+    [string]$Profile = "naive",
     [string]$JarPath = ".\result-read-service\target\result-read-service-0.0.1-SNAPSHOT.jar",
     [int]$MaxHeapMb = 512
 )
 
 $ErrorActionPreference = "Stop"
+$Profile = $Profile.ToLowerInvariant()
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $envPath = Join-Path $repoRoot ".env"
 $resolvedJar = Join-Path $repoRoot $JarPath
@@ -18,9 +21,14 @@ if ($MaxHeapMb -lt 256) {
     throw "MaxHeapMb must be at least 256."
 }
 
+$profileVariables = if ($Profile -eq "optimized") {
+    @("SHARD_1_PRIMARY_REPLICA", "SHARD_2_PRIMARY_REPLICA")
+} else {
+    @("SHARD_1_PRIMARY", "SHARD_2_PRIMARY")
+}
 $settings = @{}
 foreach ($line in [System.IO.File]::ReadAllLines($envPath)) {
-    if ($line -match '^\s*(SHARD_[12]_PRIMARY)\s*=\s*(.*?)\s*$') {
+    if ($line -match '^\s*(SHARD_[12]_(?:PRIMARY|PRIMARY_REPLICA))\s*=\s*(.*?)\s*$') {
         $value = $matches[2].Trim()
         if ($value.Length -ge 2 -and
             (($value.StartsWith('"') -and $value.EndsWith('"')) -or
@@ -31,7 +39,7 @@ foreach ($line in [System.IO.File]::ReadAllLines($envPath)) {
     }
 }
 
-foreach ($name in @("SHARD_1_PRIMARY", "SHARD_2_PRIMARY")) {
+foreach ($name in $profileVariables) {
     if ([string]::IsNullOrWhiteSpace($settings[$name])) {
         throw "Missing $name in root .env."
     }
@@ -42,7 +50,7 @@ foreach ($name in @("SHARD_1_PRIMARY", "SHARD_2_PRIMARY")) {
 }
 
 $env:SHARD_MAP_PATH = Join-Path $repoRoot "contracts\shard-map.yml"
-$env:SPRING_PROFILES_ACTIVE = "naive"
+$env:SPRING_PROFILES_ACTIVE = $Profile
 Push-Location $repoRoot
 try {
     & java "-Xms128m" "-Xmx${MaxHeapMb}m" -jar $resolvedJar
@@ -52,8 +60,9 @@ try {
 }
 finally {
     Pop-Location
-    [Environment]::SetEnvironmentVariable("SHARD_1_PRIMARY", $null, "Process")
-    [Environment]::SetEnvironmentVariable("SHARD_2_PRIMARY", $null, "Process")
+    foreach ($name in $profileVariables) {
+        [Environment]::SetEnvironmentVariable($name, $null, "Process")
+    }
     Remove-Item Env:SHARD_MAP_PATH -ErrorAction SilentlyContinue
     Remove-Item Env:SPRING_PROFILES_ACTIVE -ErrorAction SilentlyContinue
 }

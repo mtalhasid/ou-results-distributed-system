@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.datasource.lookup.AbstractRoutingDataSource;
 
 import javax.sql.DataSource;
@@ -18,12 +19,26 @@ import java.util.Map;
 @Configuration
 public class ShardDataSources {
     @Bean("shard1DataSource")
-    HikariDataSource shard1DataSource(@Value("${SHARD_1_PRIMARY}") String url) {
+    @Profile("naive")
+    HikariDataSource shard1PrimaryDataSource(@Value("${SHARD_1_PRIMARY}") String url) {
         return createDataSource(url);
     }
 
     @Bean("shard2DataSource")
-    HikariDataSource shard2DataSource(@Value("${SHARD_2_PRIMARY}") String url) {
+    @Profile("naive")
+    HikariDataSource shard2PrimaryDataSource(@Value("${SHARD_2_PRIMARY}") String url) {
+        return createDataSource(url);
+    }
+
+    @Bean("shard1DataSource")
+    @Profile("optimized")
+    HikariDataSource shard1ReplicaDataSource(@Value("${SHARD_1_PRIMARY_REPLICA}") String url) {
+        return createDataSource(url);
+    }
+
+    @Bean("shard2DataSource")
+    @Profile("optimized")
+    HikariDataSource shard2ReplicaDataSource(@Value("${SHARD_2_PRIMARY_REPLICA}") String url) {
         return createDataSource(url);
     }
 

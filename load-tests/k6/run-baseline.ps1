@@ -14,6 +14,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $manifestPath = Join-Path $repoRoot "load-tests\seed\out\seed-manifest.json"
 $scriptPath = Join-Path $repoRoot "load-tests\k6\read-baseline.js"
 $resultsDir = Join-Path $repoRoot "load-tests\results\$Profile"
+$rawDir = Join-Path $resultsDir "raw"
 $htmlDir = Join-Path $resultsDir "html"
 
 if (-not (Get-Command k6 -ErrorAction SilentlyContinue)) {
@@ -37,8 +38,7 @@ foreach ($shard in @("shard1", "shard2")) {
         $group.college_code, [int]$group.batch_year, $group.dept_code, [int]$group.roll_min
 }
 
-New-Item -ItemType Directory -Path $resultsDir -Force | Out-Null
-New-Item -ItemType Directory -Path $htmlDir -Force | Out-Null
+New-Item -ItemType Directory -Path $rawDir, $htmlDir -Force | Out-Null
 $previousDashboard = [Environment]::GetEnvironmentVariable("K6_WEB_DASHBOARD", "Process")
 $previousDashboardExport = [Environment]::GetEnvironmentVariable("K6_WEB_DASHBOARD_EXPORT", "Process")
 try {
@@ -56,7 +56,7 @@ foreach ($vusCount in $Vus) {
         }
 
         $fileStem = "$Label-$vusCount-run$run"
-        $summaryPath = Join-Path $resultsDir "$fileStem.json"
+        $summaryPath = Join-Path $rawDir "$fileStem.json"
         $env:K6_WEB_DASHBOARD = "true"
         $env:K6_WEB_DASHBOARD_EXPORT = "load-tests/results/$Profile/html/$fileStem.html"
         Write-Host "Starting $Label $Profile VU run: VUS=$vusCount, run=$run/$Runs"

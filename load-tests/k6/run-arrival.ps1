@@ -9,16 +9,24 @@ param(
     [string]$BaseUrl = "http://localhost:8082",
     [switch]$StopOnBreak,
     [ValidateRange(1, 100000)][int]$MaxVus = 300,
-    [ValidateRange(1, 3600)][int]$Timeout = 30
+    [string]$Timeout = "30"
 )
 
 $ErrorActionPreference = "Stop"
+if ($Timeout -notmatch '^(?<seconds>\d+)s?$') {
+    throw "Timeout must be a whole number of seconds, optionally suffixed with 's'."
+}
+$timeoutSeconds = [int]$matches.seconds
+if ($timeoutSeconds -lt 1 -or $timeoutSeconds -gt 3600) {
+    throw "Timeout must be between 1 and 3600 seconds."
+}
 $Profile = $Profile.ToLowerInvariant()
 $Mode = $Mode.ToLowerInvariant()
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $manifestPath = Join-Path $repoRoot "load-tests\seed\out\seed-manifest.json"
 $scriptPath = Join-Path $repoRoot "load-tests\k6\read-arrival.js"
 $resultsDir = Join-Path $repoRoot "load-tests\results\$Profile"
+$rawDir = Join-Path $resultsDir "raw"
 $htmlDir = Join-Path $resultsDir "html"
 
 if (-not (Get-Command k6 -ErrorAction SilentlyContinue)) {
@@ -65,7 +73,7 @@ function Get-ExpectedIterations([int]$Peak) {
         ($Peak / 2 * 5)
 }
 
-New-Item -ItemType Directory -Path $resultsDir, $htmlDir -Force | Out-Null
+New-Item -ItemType Directory -Path $rawDir, $htmlDir -Force | Out-Null
 $runResults = @()
 $stopReason = $null
 $previousDashboard = [Environment]::GetEnvironmentVariable("K6_WEB_DASHBOARD", "Process")
@@ -83,12 +91,12 @@ try {
             }
 
             $fileStem = "$Label-$Mode-arrival-$peak-run$run"
-            $summaryPath = Join-Path $resultsDir "$fileStem.json"
+            $summaryPath = Join-Path $rawDir "$fileStem.json"
             $dashboardPath = "load-tests/results/$Profile/html/$fileStem.html"
             $env:K6_WEB_DASHBOARD = "true"
             $env:K6_WEB_DASHBOARD_EXPORT = $dashboardPath
 
-            Write-Host "Starting arrival run: label=$Label, mode=$Mode, peak=$peak req/s, timeout=${Timeout}s, run=$run/$Runs"
+            Write-Host "Starting arrival run: label=$Label, mode=$Mode, peak=$peak req/s, timeout=${timeoutSeconds}s, run=$run/$Runs"
             Push-Location $repoRoot
             try {
                 & k6 run `
@@ -96,7 +104,7 @@ try {
                     -e "BASE_URL=$BaseUrl" `
                     -e "MAXVUS=$MaxVus" `
                     -e "MODE=$Mode" `
-                    -e "TIMEOUT=$Timeout" `
+                    -e "TIMEOUT=$timeoutSeconds" `
                     "--summary-export=$summaryPath" `
                     $scriptPath
             }

@@ -9,7 +9,8 @@ $ErrorActionPreference = "Stop"
 $Profile = $Profile.ToLowerInvariant()
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $resultsDir = Join-Path $repoRoot "load-tests\results\$Profile"
-$csvPath = Join-Path $resultsDir "hikari-100.csv"
+$rawDir = Join-Path $resultsDir "raw"
+$csvPath = Join-Path $rawDir "hikari-100.csv"
 $k6Script = Join-Path $repoRoot "load-tests\k6\read-baseline.js"
 $metricsBase = "$($BaseUrl.TrimEnd('/'))/actuator/metrics"
 
@@ -35,7 +36,7 @@ foreach ($poolName in $poolTag.values) {
     Write-Host "Effective Hikari maximumPoolSize for ${poolName}: $limit"
 }
 
-New-Item -ItemType Directory -Path $resultsDir -Force | Out-Null
+New-Item -ItemType Directory -Path $rawDir -Force | Out-Null
 $rows = [System.Collections.Generic.List[object]]::new()
 $k6 = Start-Process -FilePath (Get-Command k6).Source `
     -ArgumentList @(

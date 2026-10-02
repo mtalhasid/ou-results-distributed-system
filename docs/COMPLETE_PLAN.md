@@ -1,3 +1,5 @@
+This is a bit inconsistent im not usig Docker everywhere.
+
 # OU Results: Microservices Project Spec
 
 Backend-only project that keeps a university results site alive when tens of thousands of students check at the same moment. Roll number in, result out.

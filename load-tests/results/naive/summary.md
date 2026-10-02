@@ -1,6 +1,6 @@
 # Load Test Summary
 
-Generated: 2026-10-02 03:01:43 India Standard Time
+Generated: 2026-10-03 04:15:52 India Standard Time
 
 ## VU baseline
 
@@ -42,6 +42,12 @@ Values are grouped by label and mode, then medianed across matching runs. Latenc
 | baseline-confirmation | uniform | 50 | 3.25 | 1.05 | 0.000% | 2.650% (52) | 97.35% | 102 |
 | baseline-legacy | uniform | 25 | 1.39 | 0.55 | 0.000% | 0.000% (0) | 100.00% | 50 |
 | baseline-legacy | uniform | 50 | 12.55 | 1.68 | 0.109% | 6.420% (126) | 93.58% | 176 |
+| session2 | hot | 25 | 0.91 | 0.51 | 0.000% | 0.000% (0) | 100.00% | 50 |
+| session2 | hot | 50 | 1.02 | 0.47 | 0.000% | 0.459% (9) | 99.54% | 59 |
+| session2 | hot | 75 | 6.48 | 3.19 | 0.084% | 19.056% (555) | 80.94% | 300 |
+| session2 | uniform | 25 | 1.03 | 0.56 | 0.000% | 0.000% (0) | 100.00% | 50 |
+| session2 | uniform | 50 | 0.73 | 0.34 | 0.000% | 0.000% (0) | 100.00% | 50 |
+| session2 | uniform | 75 | 1.34 | 0.60 | 0.000% | 0.549% (16) | 99.45% | 66 |
 
 ### Individual arrival-rate runs
 
@@ -73,3 +79,21 @@ Values are grouped by label and mode, then medianed across matching runs. Latenc
 | baseline-confirmation | uniform | 50 | 3 | 3.25 | 1.05 | 0.000% | 2.650% (52) | 97.35% | 102 |
 | baseline-legacy | uniform | 25 | 1 | 1.39 | 0.55 | 0.000% | 0.000% (0) | 100.00% | 50 |
 | baseline-legacy | uniform | 50 | 1 | 12.55 | 1.68 | 0.109% | 6.420% (126) | 93.58% | 176 |
+| session2 | hot | 25 | 1 | 0.85 | 0.49 | 0.000% | 0.000% (0) | 100.00% | 50 |
+| session2 | hot | 25 | 2 | 0.91 | 0.51 | 0.000% | 0.000% (0) | 100.00% | 50 |
+| session2 | hot | 25 | 3 | 0.93 | 0.52 | 0.000% | 0.000% (0) | 100.00% | 50 |
+| session2 | hot | 50 | 1 | 1.02 | 0.47 | 0.000% | 0.459% (9) | 99.54% | 59 |
+| session2 | hot | 50 | 2 | 0.90 | 0.41 | 0.000% | 0.102% (2) | 99.90% | 51 |
+| session2 | hot | 50 | 3 | 1.38 | 0.75 | 0.000% | 0.764% (15) | 99.24% | 64 |
+| session2 | hot | 75 | 1 | 6.17 | 3.19 | 0.000% | 19.056% (555) | 80.94% | 300 |
+| session2 | hot | 75 | 2 | 6.84 | 3.24 | 0.214% | 19.674% (573) | 80.32% | 300 |
+| session2 | hot | 75 | 3 | 6.48 | 3.12 | 0.084% | 18.712% (545) | 81.28% | 300 |
+| session2 | uniform | 25 | 1 | 0.95 | 0.53 | 0.000% | 0.000% (0) | 100.00% | 50 |
+| session2 | uniform | 25 | 2 | 1.03 | 0.56 | 0.000% | 0.000% (0) | 100.00% | 50 |
+| session2 | uniform | 25 | 3 | 1.96 | 0.72 | 0.000% | 0.296% (3) | 99.70% | 53 |
+| session2 | uniform | 50 | 1 | 0.77 | 0.38 | 0.000% | 0.000% (0) | 100.00% | 50 |
+| session2 | uniform | 50 | 2 | 0.73 | 0.34 | 0.000% | 0.000% (0) | 100.00% | 50 |
+| session2 | uniform | 50 | 3 | 0.68 | 0.34 | 0.000% | 0.000% (0) | 100.00% | 50 |
+| session2 | uniform | 75 | 1 | 1.34 | 0.60 | 0.000% | 0.549% (16) | 99.45% | 66 |
+| session2 | uniform | 75 | 2 | 0.62 | 0.34 | 0.000% | 0.000% (0) | 100.00% | 50 |
+| session2 | uniform | 75 | 3 | 8.09 | 2.34 | 0.150% | 8.137% (237) | 91.86% | 286 |
