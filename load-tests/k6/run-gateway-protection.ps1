@@ -25,7 +25,8 @@ $metricsBase = "$($ReadServiceBaseUrl.TrimEnd('/'))/actuator/metrics"
 $counterNames = @(
     "result.cache.hit",
     "result.cache.miss",
-    "result.cache.negative.hit"
+    "result.cache.negative.hit",
+    "result.cache.lock.wait"
 )
 
 $k6Command = Get-Command k6 -ErrorAction SilentlyContinue
@@ -123,6 +124,20 @@ function Invoke-ProtectionScenario([string]$ScenarioName) {
 }
 
 New-Item -ItemType Directory -Path $rawDir -Force | Out-Null
+Add-Type -AssemblyName System.Net.Http
+$httpClient = [System.Net.Http.HttpClient]::new()
+try {
+    foreach ($suffix in 2..11) {
+        $rollNumber = "160423733{0:D3}" -f $suffix
+        $warmupUrl = "$($GatewayBaseUrl.TrimEnd('/'))/api/results/$rollNumber"
+        $response = $httpClient.GetAsync($warmupUrl).GetAwaiter().GetResult()
+        Write-Host "Warm-up roll $rollNumber returned HTTP $([int]$response.StatusCode)"
+        $response.Dispose()
+    }
+} finally {
+    $httpClient.Dispose()
+}
+
 $invalidResult = Invoke-ProtectionScenario "invalid"
 $burstResult = Invoke-ProtectionScenario "burst"
 

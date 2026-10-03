@@ -108,7 +108,12 @@ port 6380. Start `redis-state` before starting the gateway:
 
 ```powershell
 docker compose up -d redis-state
+
+# Normal run: default rate limit, 10 requests/second and burst 30
 .\scripts\start-gateway.ps1
+
+# Load-test run: raised limit, scoped to the gateway process
+.\scripts\start-gateway.ps1 -LoadTest
 ```
 
 Gateway setting names and defaults are `GATEWAY_PORT=8080`,
@@ -262,13 +267,13 @@ More detail: [load-test guide](../load-tests/README.md) and
 The gateway's default limiter (10 requests/second, burst 30) will throttle the
 25/50/75 req/s scenarios. For an experiment that measures the read path rather
 than the default gateway limit, start the gateway in its own window with
-explicitly higher process-local limits; these values override the defaults for
-that gateway process:
+`-LoadTest`. This sets `GATEWAY_RATE_LIMIT_REPLENISH_RATE=1000` and
+`GATEWAY_RATE_LIMIT_BURST_CAPACITY=2000` only for the gateway process; the
+launcher restores the calling PowerShell process's previous values when the
+gateway exits:
 
 ```powershell
-$env:GATEWAY_RATE_LIMIT_REPLENISH_RATE = "100"
-$env:GATEWAY_RATE_LIMIT_BURST_CAPACITY = "300"
-.\scripts\start-gateway.ps1
+.\scripts\start-gateway.ps1 -LoadTest
 ```
 
 With the read service and required Redis containers running, use port 8080 and
@@ -292,12 +297,7 @@ foreach ($peak in @(25, 50, 75)) {
 ```
 
 The gateway labels above are not included by the current comparison generator.
-Stop the gateway with Ctrl+C, then clear its process-local overrides in that
-PowerShell window:
-
-```powershell
-Remove-Item Env:GATEWAY_RATE_LIMIT_REPLENISH_RATE, Env:GATEWAY_RATE_LIMIT_BURST_CAPACITY -ErrorAction SilentlyContinue
-```
+Stop the gateway with Ctrl+C.
 
 ### Gateway protection proof
 
@@ -305,8 +305,12 @@ This runner needs the **optimized** read service on port 8082 so it can sample
 the cache counters before and after each scenario. It sends an invalid-input
 scenario (50 req/s for 20 seconds) followed by a valid-roll burst (100 req/s
 for 10 seconds) to the gateway. It does not use `.env`.
+Flush `redis-cache` immediately before the run so the burst key starts cold;
+the script then warms the separate roll numbers `160423733002` through
+`160423733011` before its measured scenarios.
 
 ```powershell
+docker compose exec -T redis-cache redis-cli FLUSHDB
 .\load-tests\k6\run-gateway-protection.ps1
 ```
 
