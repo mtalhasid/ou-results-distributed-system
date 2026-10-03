@@ -93,7 +93,7 @@ tests, and report commands. The result records and charts are under
 - [`contracts/`](./contracts/) — shared shard map and service contracts.
 - [`scripts/`](./scripts/) — local service launch scripts.
 - [`docs/`](./docs/) — project phases, trade-offs, and operating instructions.
-- [`service-discovery/`](./service-discovery/) — planned Eureka service-discovery phase.
+- [`service-discovery/`](./service-discovery/) — Eureka registry for local service discovery.
 - [`result-ingestion-service/`](./result-ingestion-service/) — planned admin upload and ingestion path.
 - [`result-persistence-service/`](./result-persistence-service/) — planned write and publish path.
 - [`account-service/`](./account-service/) — planned student registration path.
@@ -111,4 +111,6 @@ tests, and report commands. The result records and charts are under
 
 Built and measured: the naive primary-read profile, the optimized cached replica-read profile, gateway validation and rate limiting, and k6 load/protection reports.
 
-Still planned in the phases document: Eureka-based scale-out and a waiting room; result ingestion, persistence, and the publish saga; then account registration and notification/email services.
+Implemented in Phase 3, pending a local smoke run: Eureka service discovery and a one-command stack launcher for one or more read instances.
+
+Still planned in the phases document: the waiting room and resilience work; result ingestion, persistence, and the publish saga; then account registration and notification/email services.

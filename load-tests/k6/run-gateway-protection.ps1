@@ -3,25 +3,27 @@
 Runs gateway validation and rate-limit proof scenarios.
 
 .DESCRIPTION
-Requires the optimized read-service profile to be running on ReadServiceUrl,
-with its cache counters exposed through Actuator. It runs invalid requests
-first, then a valid-roll burst, recording k6 summaries and counter deltas.
+Requires the optimized read-service instances to be registered UP in Eureka,
+with cache counters exposed through Actuator. It runs invalid requests first,
+then a valid-roll burst, recording k6 summaries and summed counter deltas.
 #>
 [CmdletBinding()]
 param(
     [string]$GatewayBaseUrl = "http://localhost:8080",
-    [string]$ReadServiceBaseUrl = "http://localhost:8082",
+    [string]$EurekaBaseUrl = "http://localhost:8761",
     [ValidatePattern('^\d{12}$')]
     [string]$ValidRollNumber = "160423733001"
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$stackHelper = Join-Path $repoRoot "scripts\stack-common.ps1"
+. $stackHelper
 $k6Script = Join-Path $PSScriptRoot "gateway-protection.js"
 $resultsDir = Join-Path $repoRoot "load-tests\results\gateway"
 $rawDir = Join-Path $resultsDir "raw"
 $summaryPath = Join-Path $resultsDir "summary.md"
-$metricsBase = "$($ReadServiceBaseUrl.TrimEnd('/'))/actuator/metrics"
+$eurekaBaseUrl = $EurekaBaseUrl.TrimEnd('/')
 $counterNames = @(
     "result.cache.hit",
     "result.cache.miss",
@@ -38,21 +40,41 @@ if (-not (Test-Path -LiteralPath $k6Script)) {
 }
 
 function Get-ReadCacheCounters {
+    $registered = @(Get-RegisteredReadInstances -EurekaBaseUrl $eurekaBaseUrl)
+    if ($registered.Count -eq 0) {
+        throw "Eureka has no registered result-read-service instances at $eurekaBaseUrl."
+    }
+    $notUp = @($registered | Where-Object { $_.Status -ne "UP" })
+    if ($notUp.Count -gt 0) {
+        throw "One or more registered result-read-service instances are not UP in Eureka."
+    }
+
+    $ports = @($registered | ForEach-Object { [int]$_.Port } | Sort-Object -Unique)
+    $expectedPorts = @(Get-ReadInstancePorts -Count $ports.Count | Sort-Object)
+    if (($ports -join ",") -ne ($expectedPorts -join ",")) {
+        throw "Registered read-service ports do not match the stack port sequence (8082 upward)."
+    }
+
     $values = @{}
     foreach ($counterName in $counterNames) {
-        try {
-            $metric = Invoke-RestMethod -Uri "$metricsBase/$counterName" -TimeoutSec 5
-        } catch {
-            throw "Cannot read $counterName from $metricsBase. Start the optimized read service and verify its Actuator metrics endpoint."
+        $values[$counterName] = 0.0
+        foreach ($port in $ports) {
+            $metricsBase = "http://localhost:$port/actuator/metrics"
+            try {
+                $metric = Invoke-RestMethod -Uri "$metricsBase/$counterName" -TimeoutSec 5
+            } catch {
+                throw "Cannot read $counterName from $metricsBase. Verify the optimized read instance and its Actuator endpoint."
+            }
+            $count = $metric.measurements |
+                Where-Object { $_.statistic -eq "COUNT" } |
+                Select-Object -First 1
+            if ($null -eq $count) {
+                throw "Actuator did not return a COUNT measurement for $counterName on port $port."
+            }
+            $values[$counterName] += [double]$count.value
         }
-        $count = $metric.measurements |
-            Where-Object { $_.statistic -eq "COUNT" } |
-            Select-Object -First 1
-        if ($null -eq $count) {
-            throw "Actuator did not return a COUNT measurement for $counterName."
-        }
-        $values[$counterName] = [double]$count.value
     }
+    $values["__ports"] = $ports
     return $values
 }
 
@@ -106,6 +128,9 @@ function Invoke-ProtectionScenario([string]$ScenarioName) {
     }
     $summary = Get-Content -LiteralPath $rawPath -Raw | ConvertFrom-Json
     $after = Get-ReadCacheCounters
+    if (($before["__ports"] -join ",") -ne ($after["__ports"] -join ",")) {
+        throw "The registered read-instance set changed during the $ScenarioName scenario."
+    }
     $delta = @{}
     foreach ($counterName in $counterNames) {
         $delta[$counterName] = $after[$counterName] - $before[$counterName]
@@ -159,8 +184,9 @@ $summary = @"
 
 Generated: $generated
 
-Gateway: ``$GatewayBaseUrl``; read-service Actuator: ``$metricsBase``.
-The read service must use the optimized profile for cache counters.
+Gateway: ``$GatewayBaseUrl``; Eureka: ``$eurekaBaseUrl``.
+Cache counters are summed across all registered UP read instances on ports
+``$($invalidResult.Before['__ports'] -join ', ')``; use the optimized profile.
 Raw k6 summary exports: ``raw/invalid.json`` and ``raw/burst.json``.
 
 ## Invalid roll-number scenario

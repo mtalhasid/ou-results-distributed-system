@@ -3,10 +3,8 @@ package com.ouresults.read.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.ouresults.read.config.ShardContext;
 import com.ouresults.read.config.ShardMap;
 import com.ouresults.read.dto.ResultResponse;
-import com.ouresults.read.repository.ResultRepository;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -37,9 +35,8 @@ public class OptimizedResultReadService implements ResultReadService {
             Long.class
     );
 
-    private final ResultRepository resultRepository;
     private final ShardMap shardMap;
-    private final ShardContext shardContext;
+    private final ShardDatabaseReader shardDatabaseReader;
     private final RedisTemplate<String, String> redisTemplate;
     private final ObjectMapper objectMapper;
     private final Counter cacheHits;
@@ -48,16 +45,14 @@ public class OptimizedResultReadService implements ResultReadService {
     private final Counter lockWaits;
 
     public OptimizedResultReadService(
-            ResultRepository resultRepository,
             ShardMap shardMap,
-            ShardContext shardContext,
+            ShardDatabaseReader shardDatabaseReader,
             @Qualifier("resultRedisTemplate") RedisTemplate<String, String> redisTemplate,
             ObjectMapper objectMapper,
             MeterRegistry meterRegistry
     ) {
-        this.resultRepository = resultRepository;
         this.shardMap = shardMap;
-        this.shardContext = shardContext;
+        this.shardDatabaseReader = shardDatabaseReader;
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.cacheHits = meterRegistry.counter("result.cache.hit");
@@ -188,14 +183,11 @@ public class OptimizedResultReadService implements ResultReadService {
 
     private List<ResultResponse> readFromDatabase(String rollNo) {
         String shard = shardMap.shardFor(rollNo.substring(0, 4));
-        String previousShard = shardContext.useShard(shard);
-        try {
-            return resultRepository.findPublishedByRollNo(rollNo).stream()
-                    .map(ResultResponse::from)
-                    .toList();
-        } finally {
-            shardContext.restore(previousShard);
-        }
+        return switch (shard) {
+            case "shard1" -> shardDatabaseReader.readShard1(rollNo);
+            case "shard2" -> shardDatabaseReader.readShard2(rollNo);
+            default -> throw new IllegalStateException("Shard map returned unsupported shard " + shard + ".");
+        };
     }
 
     private record CacheLookup(boolean available, List<ResultResponse> value) {}

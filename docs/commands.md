@@ -81,43 +81,71 @@ remove Docker volumes.
 These package the services without running tests:
 
 ```powershell
+.\api-gateway\mvnw.cmd -B -f .\service-discovery\pom.xml -DskipTests package
 .\api-gateway\mvnw.cmd -B -f .\result-read-service\pom.xml -DskipTests package
 .\api-gateway\mvnw.cmd -B -f .\api-gateway\pom.xml -DskipTests package
 ```
 
 ## 4. Start and stop services
 
-The read service listens on port **8082**. `start-read.ps1` defaults to the
-`naive` profile; choose `optimized` explicitly to read from shard replicas and
-use `redis-cache` on port 6379. The launcher reads only the selected shard URL
-variables from root `.env` without printing them. Naive needs
-`SHARD_1_PRIMARY` and `SHARD_2_PRIMARY`; optimized needs
-`SHARD_1_PRIMARY_REPLICA` and `SHARD_2_PRIMARY_REPLICA`.
+The recommended local workflow uses `start-stack.ps1`. It loads only the
+selected shard URL variables from root `.env` without printing them, starts
+both Redis containers, Eureka on port **8761**, the requested read instances
+on ports **8082** and upward, then the API gateway on port **8080**.
+`-Profile` is required; optimized reads use shard replicas and `redis-cache`
+on port 6379. Naive reads use shard primaries.
 
 ```powershell
-# In its own PowerShell window; default is naive
-.\scripts\start-read.ps1
+# Start one naive read instance and the gateway
+.\scripts\start-stack.ps1 -Profile naive
 
-# Or explicitly select optimized
-.\scripts\start-read.ps1 -Profile optimized
+# Start three optimized read instances and the gateway
+.\scripts\start-stack.ps1 -Profile optimized -Instances 3
+
+# Raise the gateway rate limit only for its process (1000/s, burst 2000)
+.\scripts\start-stack.ps1 -Profile optimized -Instances 3 -LoadTest
+
+# Demo/test tool: make database reads for shard1 fail in the optimized service
+.\scripts\start-stack.ps1 -Profile optimized -FailShard shard1
+
+# Stop the application processes; Redis containers stay up
+.\scripts\stop-stack.ps1
+
+# Demo/test tool: stop only read instances; Eureka, gateway, and Redis stay up
+.\scripts\stop-stack.ps1 -ReadInstancesOnly
+
+# Also stop the Redis containers
+.\scripts\stop-stack.ps1 -StopContainers
 ```
 
-The gateway listens on port **8080**, forwards `/api/results/**` to
-`READ_SERVICE_URL` (default `http://localhost:8082`), and uses `redis-state` on
-port 6380. Start `redis-state` before starting the gateway:
+The stack launcher is idempotent for the same settings: running it again does
+not start duplicate Java processes. Process IDs and service logs are stored in
+the ignored `logs/` folder. `stop-stack.ps1` stops only processes recorded by
+the launcher. `-Instances` defaults to 1; read ports are assigned consecutively
+starting at 8082. Each read response includes `X-Instance-Id` when started by
+the stack launcher.
 
 ```powershell
-docker compose up -d redis-state
-
-# Normal run: default rate limit, 10 requests/second and burst 30
-.\scripts\start-gateway.ps1
-
-# Load-test run: raised limit, scoped to the gateway process
-.\scripts\start-gateway.ps1 -LoadTest
+# Normal stack startup uses Eureka/LoadBalancer routing
+.\scripts\start-stack.ps1 -Profile optimized
 ```
 
-Gateway setting names and defaults are `GATEWAY_PORT=8080`,
-`READ_SERVICE_URL=http://localhost:8082`, `REDIS_STATE_HOST=localhost`,
+For direct routing to one instance, set `READ_SERVICE_URL` before starting the
+stack. Run one of these options, not both in the same stack:
+
+```powershell
+# Route directly to port 8082 instead of using Eureka/LoadBalancer
+$env:READ_SERVICE_URL = "http://localhost:8082"
+.\scripts\start-stack.ps1 -Profile optimized
+Remove-Item Env:READ_SERVICE_URL
+```
+
+`READ_SERVICE_URL` defaults to `lb://result-read-service`, which uses Eureka
+and Spring Cloud LoadBalancer. Set it to `http://localhost:8082` (or another
+instance port) to target one instance directly. The gateway uses `redis-state`
+on port 6380. Gateway setting names and defaults are `GATEWAY_PORT=8080`,
+`READ_SERVICE_URL=lb://result-read-service`,
+`EUREKA_SERVER_URL=http://localhost:8761/eureka/`, `REDIS_STATE_HOST=localhost`,
 `REDIS_STATE_PORT=6380`, `GATEWAY_RATE_LIMIT_REPLENISH_RATE=10`, and
 `GATEWAY_RATE_LIMIT_BURST_CAPACITY=30`.
 
@@ -127,22 +155,31 @@ Gateway filter order is: correlation-ID global filter
 filter), then route forwarding. Thus invalid roll numbers are rejected before
 the Redis rate limiter and read service.
 
-The read service and gateway run in separate PowerShell windows and can run
-together. For direct reads, target `http://localhost:8082`; for gateway reads,
-target `http://localhost:8080` while the read service is running. Naive direct
-reads need no Redis. Optimized reads use `redis-cache` and require the replica
-URLs; if Redis is unavailable, the service falls back to the replicas.
-Optimized reads through the gateway use both Redis containers. Gateway reads
-with either read profile use `redis-state`.
+For direct reads, target the instance port (`http://localhost:8082`,
+`http://localhost:8083`, and so on); for load-balanced reads, target
+`http://localhost:8080`. Naive direct reads need no Redis. Optimized reads use
+`redis-cache` and require the replica URLs; if Redis is unavailable, the
+service falls back to the replicas. Gateway reads use `redis-state`.
 
 Check the Spring Boot startup log for the active profile name and confirm it
 matches the `-Profile` supplied to the read launcher. The exact startup-log
-wording is **unverified**. Press **Ctrl+C** in each foreground
-service window to stop that service. `start-read.ps1` also accepts
+wording is **unverified**. The legacy `start-read.ps1` remains available for a
+single foreground instance on port 8082 and defaults to `naive`; press
+**Ctrl+C** in its window to stop it. `start-read.ps1` also accepts
 `-JarPath` (default `.\result-read-service\target\result-read-service-0.0.1-SNAPSHOT.jar`)
 and `-MaxHeapMb` (default 512; minimum 256). `start-gateway.ps1` accepts
 `-JarPath` (default `.\api-gateway\target\api-gateway-0.0.1-SNAPSHOT.jar`)
-and `-MaxHeapMb` (default 512; minimum 256).
+and `-MaxHeapMb` (default 512; minimum 256). `start-stack.ps1` accepts
+`-Profile` (`naive` or `optimized`, required), `-Instances` (default 1), and
+`-LoadTest`; the latter sets the gateway rate limit to 1000/s with a burst
+capacity of 2000 for that gateway process. `-FailShard` accepts `shard1` or
+`shard2` and is available only with `-Profile optimized`; it simulates a
+technical database connection failure on that shard for breaker demos and
+checks. The read service binds `APP_DEMO_FAILING_SHARD` to
+`app.demo.failing-shard`; it defaults to `none`.
+`stop-stack.ps1 -ReadInstancesOnly` stops only the read-service processes,
+retains the stack state, and leaves Eureka, the gateway, and Redis running.
+Both switches are demo/test tools, not production settings.
 
 More detail: [read-service profiles](../result-read-service/README.md) and
 [gateway](../api-gateway/README.md).
@@ -150,8 +187,13 @@ More detail: [read-service profiles](../result-read-service/README.md) and
 ## 5. Quick health checks
 
 ```powershell
-# Read service health and exposed metrics
+# Eureka and read-instance health/registration
+curl.exe -i http://localhost:8761/actuator/health
+curl.exe -i http://localhost:8761/eureka/apps/RESULT-READ-SERVICE
 curl.exe -i http://localhost:8082/actuator/health
+curl.exe -i http://localhost:8082/api/results/160423733001
+
+# Read service metrics
 curl.exe -i http://localhost:8082/actuator/metrics
 
 # Gateway health and metrics
@@ -163,16 +205,38 @@ curl.exe -s http://localhost:8082/actuator/metrics/result.cache.hit
 curl.exe -s http://localhost:8082/actuator/metrics/result.cache.miss
 curl.exe -s http://localhost:8082/actuator/metrics/result.cache.negative.hit
 curl.exe -s http://localhost:8082/actuator/metrics/result.cache.lock.wait
+
+# Circuit-breaker state and events (optimized read service and gateway)
+curl.exe -s http://localhost:8082/actuator/circuitbreakers
+curl.exe -s http://localhost:8082/actuator/circuitbreakerevents
+curl.exe -s http://localhost:8080/actuator/circuitbreakers
+curl.exe -s http://localhost:8082/actuator/health/circuitBreakers
+curl.exe -s http://localhost:8080/actuator/health/readServiceCircuitBreaker
+curl.exe -s "http://localhost:8082/actuator/metrics/resilience4j.circuitbreaker.calls?tag=name:shard1Database"
+curl.exe -s "http://localhost:8082/actuator/metrics/resilience4j.circuitbreaker.calls?tag=name:shard2Database"
+curl.exe -s "http://localhost:8080/actuator/metrics/resilience4j.circuitbreaker.calls?tag=name:readService"
+curl.exe -s "http://localhost:8082/actuator/metrics/resilience4j.circuitbreaker.state?tag=name:shard1Database"
+curl.exe -s "http://localhost:8082/actuator/metrics/resilience4j.circuitbreaker.state?tag=name:shard2Database"
+curl.exe -s "http://localhost:8080/actuator/metrics/resilience4j.circuitbreaker.state?tag=name:readService"
 ```
 
 Example gateway requests:
 
 ```powershell
-# Valid 12-digit roll number/known college; expect HTTP 200
+# Seeded roll from the seed manifest/data (1604 -> shard1 in
+# contracts/shard-map.yml); expect HTTP 200
 curl.exe -i http://localhost:8080/api/results/160423733001
+
+# Seeded roll from the seed manifest/data (1608 -> shard2 in
+# contracts/shard-map.yml); expect HTTP 200
+curl.exe -i http://localhost:8080/api/results/160823733001
 
 # Invalid roll number; expect HTTP 400 ProblemDetail
 curl.exe -i http://localhost:8080/api/results/not-a-roll
+
+# If the gateway breaker is open, unavailable, or the read route times out,
+# expect HTTP 503 ProblemDetail and Retry-After: 5.
+curl.exe -i http://localhost:8080/api/results/160423733001
 
 # 40 parallel requests from this client IP; expect some HTTP 429 responses
 $url = "http://localhost:8080/api/results/160400000001"
@@ -182,7 +246,74 @@ $urls = 1..40 | ForEach-Object { $url }
 
 The 200 request depends on reachable, correctly seeded databases; that state is
 **unverified**. Gateway rate limits default to 10 requests/second and a burst
-of 30 per client IP.
+of 30 per client IP. The gateway read route has a 10-second response timeout
+and a Resilience4j breaker named `readService`, with the Resilience4j time
+limiter also set to 10 seconds. Its fallback is HTTP 503 with
+`Retry-After: 5`. The gateway breaker is limited to transport and timeout
+failures; it does not count a shard-specific 503 returned by the read service,
+so a shard's open breaker does not block reads routed to the other shard.
+
+### Circuit-breaker demo/checks
+
+The optimized read service has independent breakers named `shard1Database`
+and `shard2Database`; the naive profile does not use them. Each uses a
+20-call count window, waits for 10 calls before calculating a 50% failure
+threshold, stays open for 10 seconds, then permits 3 half-open calls. Only
+technical database connection failures and timeouts count as failures. An
+empty result for a valid but unregistered student is a normal result, not a
+failure. A cache hit is served without consulting the shard breaker.
+
+To check that shard1 failure does not affect shard2, start the optimized demo
+switch and send ten cold requests to shard1. Clear only the optimized cache
+before this check; the switch does not write failed reads to cache.
+
+```powershell
+docker compose exec -T redis-cache redis-cli FLUSHDB
+.\scripts\start-stack.ps1 -Profile optimized -FailShard shard1
+
+# 10 cold shard1 reads: expect HTTP 503; the shard1Database state should open.
+1..10 | ForEach-Object {
+    curl.exe -s -o NUL -w "%{http_code}`n" http://localhost:8082/api/results/160423733001
+}
+curl.exe -s http://localhost:8082/actuator/circuitbreakers
+
+# Shard2 remains independent and should return HTTP 200.
+curl.exe -i http://localhost:8082/api/results/160823733001
+```
+
+To confirm cache hits remain available while shard1 is failing, clear Redis,
+start a normal optimized stack, and prime `160423733001`. Leave
+`160423733002` unrequested so it stays cold. Stop the normal stack with
+`.\scripts\stop-stack.ps1`, then restart with `-FailShard shard1`. The primed
+roll should still return HTTP 200 from cache. Send ten requests for the cold
+roll `160423733002` to open the breaker; the primed cached roll should continue
+to return HTTP 200 afterward. The stack-wide cache is retained when application
+processes are stopped.
+
+```powershell
+docker compose exec -T redis-cache redis-cli FLUSHDB
+.\scripts\start-stack.ps1 -Profile optimized
+curl.exe -i http://localhost:8082/api/results/160423733001
+.\scripts\stop-stack.ps1
+.\scripts\start-stack.ps1 -Profile optimized -FailShard shard1
+curl.exe -i http://localhost:8082/api/results/160423733001
+1..10 | ForEach-Object {
+    curl.exe -s -o NUL -w "%{http_code}`n" http://localhost:8082/api/results/160423733002
+}
+curl.exe -i http://localhost:8082/api/results/160423733001
+```
+
+To check the gateway-level fallback independently, stop only the read tier
+while leaving the gateway and Eureka running, then call either seeded roll
+through port 8080. The request should fail fast with HTTP 503 and
+`Retry-After: 5`; the gateway breaker state is available at
+`http://localhost:8080/actuator/circuitbreakers`.
+
+```powershell
+# Demo/test only: keep Eureka, the gateway, and Redis running
+.\scripts\stop-stack.ps1 -ReadInstancesOnly
+curl.exe -i http://localhost:8080/api/results/160423733001
+```
 
 ## 6. Load tests
 
@@ -301,8 +432,10 @@ Stop the gateway with Ctrl+C.
 
 ### Gateway protection proof
 
-This runner needs the **optimized** read service on port 8082 so it can sample
-the cache counters before and after each scenario. It sends an invalid-input
+This runner needs the **optimized** read service running in the stack. It
+samples cache counters from every UP read instance registered in Eureka and
+sums them before and after each scenario. Instance ports must follow the
+stack's 8082-upward sequence. It sends an invalid-input
 scenario (50 req/s for 20 seconds) followed by a valid-roll burst (100 req/s
 for 10 seconds) to the gateway. It does not use `.env`.
 Flush `redis-cache` immediately before the run so the burst key starts cold;
@@ -315,8 +448,8 @@ docker compose exec -T redis-cache redis-cli FLUSHDB
 ```
 
 Optional parameters are `-GatewayBaseUrl` (default
-`http://localhost:8080`), `-ReadServiceBaseUrl` (default
-`http://localhost:8082`), and `-ValidRollNumber` (default `160423733001`, must
+`http://localhost:8080`), `-EurekaBaseUrl` (default
+`http://localhost:8761`), and `-ValidRollNumber` (default `160423733001`, must
 be 12 digits). It writes the k6 summary JSON files under
 `load-tests\results\gateway\raw\` and a generated report to
 `load-tests\results\gateway\summary.md`. The report includes observed HTTP
