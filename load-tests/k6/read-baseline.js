@@ -44,7 +44,7 @@ export default function () {
     "response is successful": (res) => res.status === 200,
     "response is a result list": (res) => {
       try {
-        return Array.isArray(res.json());
+        return Array.isArray(res.json().data);
       } catch (_) {
         return false;
       }

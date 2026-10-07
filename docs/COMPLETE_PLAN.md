@@ -86,9 +86,9 @@ Account-service = who is this student. Notification-service = how do we tell the
 
 ### result-read-service (x3)
 
-- **Owns:** the whole read path, cache-aside, negative caching, stampede lock, shard routing for reads, reads from replicas, circuit breaker to DB, the naive profile for load tests, the internal strong-read endpoint (primary reads), the CQRS read side
+- **Owns:** the whole read path, cache-aside, shard routing for reads, reads from replicas, circuit breaker to DB, the naive profile for load tests, the internal strong-read endpoint (primary reads), the CQRS read side
 - **DB:** reads exams and results from the shard read replicas (from the primaries for strong reads)
-- **Redis:** redis-cache: result: (cache), lock: (per-key lock). Eviction is set in compose, not here.
+- **Redis:** redis-cache: result:: (Spring Cache, 10-min TTL). Eviction is set in compose, not here.
 - **Kafka:** consumes results.published to pre-warm the cache (reads the primary, in pages)
 
 ### result-ingestion-service (Node/Express, TypeScript)
@@ -285,7 +285,7 @@ exam_id, title, result_date, publish_status (DRAFT, PUBLISHING, SHARDS_PUBLISHED
 
 ### Redis: two instances (same image, different config)
 
-- **redis-cache:** result:, lock:. Used by the read service. Eviction is Redis config, not code: maxmemory + maxmemory-policy allkeys-lru.
+- **redis-cache:** result:: (Spring Cache, 10-min TTL). Used by the read service. Eviction is Redis config, not code: maxmemory + maxmemory-policy allkeys-lru.
 - **redis-state:** rl: (rate limits, failed-attempt counters), wr: (waiting room), quota: (daily email count). Used by the gateway, account-service and notification-service. maxmemory-policy noeviction, because losing this state would break the waiting room, the limits and the quota.
 - Local Docker vs Upstash is still open (see section 11). Upstash would need two databases.
 
@@ -306,7 +306,7 @@ exam_id, title, result_date, publish_status (DRAFT, PUBLISHING, SHARDS_PUBLISHED
 | Cache eviction | redis-cache maxmemory + allkeys-lru, configured not coded |
 | Cache vs control state | Two Redis instances: cache (LRU) and state (noeviction) |
 | Cache pre-warming | Kafka results.published consumer in the read service |
-| Stampede protection | Per-key Redis lock on cache miss |
+| Stampede protection | Not implemented; concurrent cold-key requests each cause a separate DB read |
 | Rate limiting | Gateway, Redis token bucket |
 | Waiting room / admission control | Gateway + redis-state |
 | Load balancing, service discovery | Gateway + Eureka, 3 read-service instances (the Node services are reached by fixed Docker names) |
@@ -444,7 +444,7 @@ The Node services (account-service, result-ingestion-service) use pino with the 
 |---|---|
 | api-gateway | request received, invalid roll number, rate limited, waiting room queued / admitted |
 | account-service | registration accepted or rejected, lockout |
-| result-read-service | cache hit or miss, shard chosen, DB read time, lock wait, not-found cached, strong read served, warm-up page done |
+| result-read-service | cache hit or miss, shard chosen, DB read time, not-found cached, strong read served, warm-up page done |
 | result-ingestion-service | upload received (row count), batches published |
 | result-persistence-service | batch received, rows upserted, duplicates skipped, sent to DLQ, saga step started / done / retried / undone, publish status changed, Kafka event sent |
 | notification-service | event received, registered students fetched, jobs queued |

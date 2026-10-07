@@ -40,3 +40,57 @@ From the repository root, run:
 ```powershell
 .\.venv\Scripts\python.exe .\load-tests\report\make_comparison.py
 ```
+
+
+# Phase 3 Step 4: Horizontal Scaling Evaluation (1 vs 2 vs 3 Instances)
+
+This report evaluates the horizontal scaling characteristics of the optimized OU Results Read Service under arrival-rate traffic patterns (25, 50, and 75 req/s) with 1, 2, and 3 instances registered in Eureka and load-balanced through the API Gateway.
+
+---
+
+## 1. Summary Comparison Table
+
+| Instances | Peak Rate (req/s) | Median p95 (s) | Median Avg (s) | Delivered (%) | Dropped (%) | HTTP Errors (%) |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **1 instance** | 25 | 0.89s | 0.36s | **100.00%** | 0.00% | 0.00% |
+| **1 instance** | 50 | 0.73s | 0.11s | **100.00%** | 0.00% | 0.00% |
+| **1 instance** | 75 | **0.02s** (16ms) | **0.04s** (20ms) | **100.00%** | 0.00% | 0.00% |
+| **2 instances** | 25 | 0.65s | 0.31s | **100.00%** | 0.00% | 0.00% |
+| **2 instances** | 50 | 0.58s | 0.11s | **100.00%** | 0.00% | 0.00% |
+| **2 instances** | 75 | **0.02s** (12ms) | **0.03s** (16ms) | **100.00%** | 0.00% | 0.00% |
+| **3 instances** | 25 | 0.62s | 0.42s | **100.00%** | 0.00% | 0.00% |
+| **3 instances** | 50 | 0.73s | 0.11s | **100.00%** | 0.00% | 0.00% |
+| **3 instances** | 75 | **0.02s** (15ms) | **0.03s** (21ms) | **100.00%** | 0.00% | 0.00% |
+
+> [!NOTE]
+> Every run across all instance counts achieved **100.00% delivered arrivals** with **0 HTTP errors** and **0 dropped iterations**.
+
+---
+
+## 2. Key Findings & Architecture Evaluation
+
+### A. Perfect Reliability Across All Tiers (100% Delivered)
+- Unlike the Naive baseline which collapsed under 75 req/s (19.1% dropped iterations and dead DB connection pools), the optimized stack delivered **100% of all requests** across all 27 runs.
+- **Zero HTTP 503 or 500 errors** were emitted during steady-state traffic.
+
+### B. Cold Ramp vs. Warm Cache Latencies
+- **At 25 req/s (Cold/Warm mix)**: The ramp phase accesses uncached keys that require querying PostgreSQL. With 2 and 3 instances, the load of initial cold database reads is distributed across multiple connection pools, bringing p95 down from 0.89s (1 instance) to 0.65s (2 instances) and 0.62s (3 instances).
+- **At 75 req/s (Fully Cached)**: Once the hot keys are cached in Redis, all three configurations deliver blazing sub-20ms p95 latencies (**0.015s – 0.020s**), as requests bypass the database and bulkhead entirely.
+
+### C. Gateway Load Balancing & Circuit Breaker Health
+- Spring Cloud Gateway successfully balanced traffic across all registered read service instances via Eureka (`lb://result-read-service`).
+- With the duplicate gateway bulkhead disabled, the gateway circuit breaker remained in the **CLOSED** state throughout all 27 runs with zero premature trips.
+
+---
+
+## 3. Visual Charts
+
+````carousel
+![Delivered Arrivals](C:\Users\Talha Ahmed\.gemini\antigravity\brain\37354c99-483d-4f12-9483-8423b198466e\scaling-hot-delivered.png)
+<!-- slide -->
+![p95 Latency](C:\Users\Talha Ahmed\.gemini\antigravity\brain\37354c99-483d-4f12-9483-8423b198466e\scaling-hot-p95.png)
+<!-- slide -->
+![Average Latency](C:\Users\Talha Ahmed\.gemini\antigravity\brain\37354c99-483d-4f12-9483-8423b198466e\scaling-hot-average.png)
+<!-- slide -->
+![Summary Table](C:\Users\Talha Ahmed\.gemini\antigravity\brain\37354c99-483d-4f12-9483-8423b198466e\scaling-hot-summary-table.png)
+````

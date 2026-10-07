@@ -4,8 +4,12 @@ Runs gateway validation and rate-limit proof scenarios.
 
 .DESCRIPTION
 Requires the optimized read-service instances to be registered UP in Eureka,
-with cache counters exposed through Actuator. It runs invalid requests first,
-then a valid-roll burst, recording k6 summaries and summed counter deltas.
+with cache metrics exposed through Actuator. It runs invalid requests first,
+then a valid-roll burst, recording k6 summaries and summed metric deltas.
+
+Cache metrics use Spring's built-in cache.gets counter (result=hit / result=miss).
+The lock.wait row from the old report is replaced with the shard circuit-breaker
+call count delta (resilience4j.circuitbreaker.calls), which equals database reads.
 #>
 [CmdletBinding()]
 param(
@@ -17,19 +21,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$stackHelper = Join-Path $repoRoot "scripts\stack-common.ps1"
+$stackHelper = Join-Path $repoRoot "scripts\stack-helpers.ps1"
 . $stackHelper
 $k6Script = Join-Path $PSScriptRoot "gateway-protection.js"
 $resultsDir = Join-Path $repoRoot "load-tests\results\gateway"
 $rawDir = Join-Path $resultsDir "raw"
 $summaryPath = Join-Path $resultsDir "summary.md"
 $eurekaBaseUrl = $EurekaBaseUrl.TrimEnd('/')
-$counterNames = @(
-    "result.cache.hit",
-    "result.cache.miss",
-    "result.cache.negative.hit",
-    "result.cache.lock.wait"
-)
+
+# Metrics read via Actuator
+$cacheMetricName = "cache.gets"
+$breakerMetric   = "resilience4j.circuitbreaker.calls"
 
 $k6Command = Get-Command k6 -ErrorAction SilentlyContinue
 if ($null -eq $k6Command) {
@@ -39,7 +41,16 @@ if (-not (Test-Path -LiteralPath $k6Script)) {
     throw "Gateway protection k6 script was not found: $k6Script"
 }
 
-function Get-ReadCacheCounters {
+function Get-MetricCount([string]$BaseUrl, [string]$Uri) {
+    try {
+        $data = Invoke-RestMethod -Uri "$BaseUrl/actuator/metrics/$Uri" -TimeoutSec 5
+        $m = $data.measurements | Where-Object { $_.statistic -eq "COUNT" } | Select-Object -First 1
+        if ($null -eq $m) { return 0.0 }
+        return [double]$m.value
+    } catch { return 0.0 }
+}
+
+function Get-ReadMetrics {
     $registered = @(Get-RegisteredReadInstances -EurekaBaseUrl $eurekaBaseUrl)
     if ($registered.Count -eq 0) {
         throw "Eureka has no registered result-read-service instances at $eurekaBaseUrl."
@@ -55,27 +66,23 @@ function Get-ReadCacheCounters {
         throw "Registered read-service ports do not match the stack port sequence (8082 upward)."
     }
 
-    $values = @{}
-    foreach ($counterName in $counterNames) {
-        $values[$counterName] = 0.0
-        foreach ($port in $ports) {
-            $metricsBase = "http://localhost:$port/actuator/metrics"
-            try {
-                $metric = Invoke-RestMethod -Uri "$metricsBase/$counterName" -TimeoutSec 5
-            } catch {
-                throw "Cannot read $counterName from $metricsBase. Verify the optimized read instance and its Actuator endpoint."
-            }
-            $count = $metric.measurements |
-                Where-Object { $_.statistic -eq "COUNT" } |
-                Select-Object -First 1
-            if ($null -eq $count) {
-                throw "Actuator did not return a COUNT measurement for $counterName on port $port."
-            }
-            $values[$counterName] += [double]$count.value
-        }
+    $hits = 0.0; $misses = 0.0; $shard1Calls = 0.0; $shard2Calls = 0.0
+
+    foreach ($port in $ports) {
+        $base = "http://localhost:$port"
+        $hits        += Get-MetricCount $base "cache.gets?tag=name:result&tag=result:hit"
+        $misses      += Get-MetricCount $base "cache.gets?tag=name:result&tag=result:miss"
+        $shard1Calls += Get-MetricCount $base "resilience4j.circuitbreaker.calls?tag=name:shard1Database"
+        $shard2Calls += Get-MetricCount $base "resilience4j.circuitbreaker.calls?tag=name:shard2Database"
     }
-    $values["__ports"] = $ports
-    return $values
+
+    return [PSCustomObject]@{
+        Hits        = $hits
+        Misses      = $misses
+        Shard1Calls = $shard1Calls
+        Shard2Calls = $shard2Calls
+        Ports       = $ports
+    }
 }
 
 function Get-StatusCounts($Summary) {
@@ -94,20 +101,15 @@ function Get-StatusCounts($Summary) {
 
 function Get-LatencyP95($Summary, [string]$MetricName) {
     $metric = $Summary.metrics.PSObject.Properties[$MetricName]
-    if ($null -eq $metric) {
-        return "n/a"
-    }
+    if ($null -eq $metric) { return "n/a" }
     $p95 = $metric.Value.PSObject.Properties["p(95)"]
-    if ($null -eq $p95 -or $null -eq $p95.Value) {
-        return "n/a"
-    }
+    if ($null -eq $p95 -or $null -eq $p95.Value) { return "n/a" }
     return ([math]::Round([double]$p95.Value, 2)).ToString(
-        [System.Globalization.CultureInfo]::InvariantCulture
-    )
+        [System.Globalization.CultureInfo]::InvariantCulture)
 }
 
 function Invoke-ProtectionScenario([string]$ScenarioName) {
-    $before = Get-ReadCacheCounters
+    $before = Get-ReadMetrics
     $rawPath = Join-Path $rawDir "$ScenarioName.json"
     Push-Location $repoRoot
     try {
@@ -127,24 +129,22 @@ function Invoke-ProtectionScenario([string]$ScenarioName) {
         throw "k6 did not create the expected summary file: $rawPath"
     }
     $summary = Get-Content -LiteralPath $rawPath -Raw | ConvertFrom-Json
-    $after = Get-ReadCacheCounters
-    if (($before["__ports"] -join ",") -ne ($after["__ports"] -join ",")) {
+    $after = Get-ReadMetrics
+    if (($before.Ports -join ",") -ne ($after.Ports -join ",")) {
         throw "The registered read-instance set changed during the $ScenarioName scenario."
     }
-    $delta = @{}
-    foreach ($counterName in $counterNames) {
-        $delta[$counterName] = $after[$counterName] - $before[$counterName]
-    }
-
     return [PSCustomObject]@{
-        Name = $ScenarioName
-        Summary = $summary
+        Name         = $ScenarioName
+        Summary      = $summary
         StatusCounts = (Get-StatusCounts $summary)
-        AcceptedP95 = Get-LatencyP95 $summary "gateway_accepted_duration"
-        RejectedP95 = Get-LatencyP95 $summary "gateway_rejected_duration"
-        Before = $before
-        After = $after
-        Delta = $delta
+        AcceptedP95  = Get-LatencyP95 $summary "gateway_accepted_duration"
+        RejectedP95  = Get-LatencyP95 $summary "gateway_rejected_duration"
+        Before       = $before
+        After        = $after
+        HitDelta     = $after.Hits        - $before.Hits
+        MissDelta    = $after.Misses      - $before.Misses
+        Shard1Delta  = $after.Shard1Calls - $before.Shard1Calls
+        Shard2Delta  = $after.Shard2Calls - $before.Shard2Calls
     }
 }
 
@@ -164,29 +164,23 @@ try {
 }
 
 $invalidResult = Invoke-ProtectionScenario "invalid"
-$burstResult = Invoke-ProtectionScenario "burst"
+$burstResult   = Invoke-ProtectionScenario "burst"
 
 function Format-StatusCounts($Counts) {
-    return (($Counts.GetEnumerator() | Sort-Object { [int]$_.Key } |
+    return (($Counts.GetEnumerator() | Sort-Object { if ($_.Key -match '^\d+$') { [int]$_.Key } else { 9999 } } |
         ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ", ")
 }
 
-function Format-CounterTable($Scenario) {
-    $rows = foreach ($counterName in $counterNames) {
-        "| $counterName | $($Scenario.Before[$counterName]) | $($Scenario.After[$counterName]) | $($Scenario.Delta[$counterName]) |"
-    }
-    return $rows -join "`n"
-}
-
 $generated = Get-Date -Format "yyyy-MM-dd HH:mm:ss K"
-$summary = @"
+$report = @"
 # Gateway protection proof
 
 Generated: $generated
 
 Gateway: ``$GatewayBaseUrl``; Eureka: ``$eurekaBaseUrl``.
-Cache counters are summed across all registered UP read instances on ports
-``$($invalidResult.Before['__ports'] -join ', ')``; use the optimized profile.
+Cache metrics (cache.gets) and circuit-breaker call counts are summed across
+all registered UP read instances on ports ``$($invalidResult.Before.Ports -join ', ')``;
+use the optimized profile.
 Raw k6 summary exports: ``raw/invalid.json`` and ``raw/burst.json``.
 
 ## Invalid roll-number scenario
@@ -198,36 +192,43 @@ to be HTTP 400.
 - Accepted-request p95: $($invalidResult.AcceptedP95) ms
 - Rejected-request p95: $($invalidResult.RejectedP95) ms
 
-Cache counter delta (expected zero):
+Cache metric delta (expected zero — invalid requests are rejected before the read service):
 
-| Counter | Before | After | Delta |
+| Metric | Before | After | Delta |
 |---|---:|---:|---:|
-$(Format-CounterTable $invalidResult)
+| cache.gets (hit) | $($invalidResult.Before.Hits) | $($invalidResult.After.Hits) | $($invalidResult.HitDelta) |
+| cache.gets (miss) | $($invalidResult.Before.Misses) | $($invalidResult.After.Misses) | $($invalidResult.MissDelta) |
+| shard1 breaker calls | $($invalidResult.Before.Shard1Calls) | $($invalidResult.After.Shard1Calls) | $($invalidResult.Shard1Delta) |
+| shard2 breaker calls | $($invalidResult.Before.Shard2Calls) | $($invalidResult.After.Shard2Calls) | $($invalidResult.Shard2Delta) |
 
 ## Valid-roll burst scenario
 
 Configured for 100 requests/second over 10 seconds to roll number
 ``$ValidRollNumber``. HTTP 200 responses are accepted; HTTP 429 responses
-should be rate-limited before reaching the read service.
+should be rate-limited before reaching the read service; HTTP 503 responses
+indicate the bulkhead or circuit breaker rejected the request.
 
 - Status-code counts: $(Format-StatusCounts $burstResult.StatusCounts)
 - Accepted-request p95: $($burstResult.AcceptedP95) ms
 - Rejected-request p95: $($burstResult.RejectedP95) ms
 
-Cache counter delta (only accepted requests should affect the read service):
+Cache metric delta (only accepted requests should affect the read service):
 
-| Counter | Before | After | Delta |
+| Metric | Before | After | Delta |
 |---|---:|---:|---:|
-$(Format-CounterTable $burstResult)
+| cache.gets (hit) | $($burstResult.Before.Hits) | $($burstResult.After.Hits) | $($burstResult.HitDelta) |
+| cache.gets (miss) | $($burstResult.Before.Misses) | $($burstResult.After.Misses) | $($burstResult.MissDelta) |
+| shard1 breaker calls | $($burstResult.Before.Shard1Calls) | $($burstResult.After.Shard1Calls) | $($burstResult.Shard1Delta) |
+| shard2 breaker calls | $($burstResult.Before.Shard2Calls) | $($burstResult.After.Shard2Calls) | $($burstResult.Shard2Delta) |
 
-Negative hits are also included in the hit counter. Compare the hit and miss
-deltas with the HTTP 200 count; external concurrent traffic can affect these
-Actuator deltas.
+The miss delta equals the number of cold keys that required a database read.
+Cache hits are served without a database call. Compare the shard breaker call
+delta with the miss delta; they should be equal for a single-instance stack.
 "@
 
 [System.IO.File]::WriteAllText(
     $summaryPath,
-    $summary,
+    $report,
     [System.Text.UTF8Encoding]::new($false)
 )
 Write-Host "Wrote gateway protection summary to $summaryPath"

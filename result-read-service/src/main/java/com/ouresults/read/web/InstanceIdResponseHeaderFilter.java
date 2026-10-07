@@ -1,6 +1,6 @@
 package com.ouresults.read.web;
 
-import com.ouresults.read.config.ReadServiceProperties;
+import com.ouresults.read.config.AppProperties;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,15 +18,15 @@ import java.io.IOException;
 public class InstanceIdResponseHeaderFilter extends OncePerRequestFilter {
     private static final String HEADER_NAME = "X-Instance-Id";
 
-    private final ReadServiceProperties properties;
+    private final AppProperties appProperties;
 
     @Override
     protected void doFilterInternal(
             HttpServletRequest request,
             HttpServletResponse response,
-            FilterChain filterChain
+            FilterChain chain
     ) throws ServletException, IOException {
-        response.setHeader(HEADER_NAME, properties.instanceId());
-        filterChain.doFilter(request, response);
+        response.setHeader(HEADER_NAME, appProperties.instanceId());
+        chain.doFilter(request, response);
     }
 }

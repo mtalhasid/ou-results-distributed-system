@@ -1,9 +1,13 @@
 package com.ouresults.read.service;
 
-import com.ouresults.read.config.DemoProperties;
-import com.ouresults.read.config.ShardContext;
+import com.ouresults.read.config.AppProperties;
+import com.ouresults.read.config.ShardRoutingConfiguration.ShardContext;
 import com.ouresults.read.dto.ResultResponse;
+import com.ouresults.read.exception.DatabaseTechnicalFailureException;
+import com.ouresults.read.exception.ShardUnavailableException;
 import com.ouresults.read.repository.ResultRepository;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
@@ -24,38 +28,36 @@ import java.util.List;
 public class ShardDatabaseReader {
     private final ResultRepository resultRepository;
     private final ShardContext shardContext;
-    private final DemoProperties demoProperties;
+    private final AppProperties appProperties;
 
+    @Bulkhead(name = "shard1Database")
     @CircuitBreaker(name = "shard1Database", fallbackMethod = "shard1Fallback")
     public List<ResultResponse> readShard1(String rollNo) {
         return readFromShard("shard1", rollNo);
     }
 
+    @Bulkhead(name = "shard2Database")
     @CircuitBreaker(name = "shard2Database", fallbackMethod = "shard2Fallback")
     public List<ResultResponse> readShard2(String rollNo) {
         return readFromShard("shard2", rollNo);
     }
 
     private List<ResultResponse> readFromShard(String shard, String rollNo) {
-        if (demoProperties.failingShard().equals(shard)) {
+        if (appProperties.demo().failingShard().equals(shard)) {
             throw new DatabaseTechnicalFailureException("Demo database connection failure for " + shard + ".");
         }
-
-        String previousShard = shardContext.useShard(shard);
+        String previous = shardContext.useShard(shard);
         try {
             return resultRepository.findPublishedByRollNo(rollNo).stream()
                     .map(ResultResponse::from)
                     .toList();
-        } catch (DataAccessException exception) {
-            if (isTechnicalFailure(exception)) {
-                throw new DatabaseTechnicalFailureException(
-                        "Technical database failure for " + shard + ".",
-                        exception
-                );
+        } catch (DataAccessException ex) {
+            if (isTechnicalFailure(ex)) {
+                throw new DatabaseTechnicalFailureException("Technical database failure for " + shard + ".", ex);
             }
-            throw exception;
+            throw ex;
         } finally {
-            shardContext.restore(previousShard);
+            shardContext.restore(previous);
         }
     }
 
@@ -69,26 +71,26 @@ public class ShardDatabaseReader {
 
     private List<ResultResponse> handleFallback(String shard, Throwable failure) {
         if (failure instanceof CallNotPermittedException
-                || failure instanceof DatabaseTechnicalFailureException) {
+                || failure instanceof DatabaseTechnicalFailureException
+                || failure instanceof BulkheadFullException) {
             throw new ShardUnavailableException(shard, failure);
         }
-        if (failure instanceof RuntimeException runtimeException) {
-            throw runtimeException;
+        if (failure instanceof RuntimeException re) {
+            throw re;
         }
         throw new IllegalStateException("Unexpected checked failure during database read.", failure);
     }
 
-    private boolean isTechnicalFailure(DataAccessException exception) {
-        if (exception instanceof DataAccessResourceFailureException
-                || exception instanceof QueryTimeoutException) {
+    private boolean isTechnicalFailure(DataAccessException ex) {
+        if (ex instanceof DataAccessResourceFailureException || ex instanceof QueryTimeoutException) {
             return true;
         }
-        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+        for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
             if (cause instanceof SQLTimeoutException
                     || cause instanceof SQLTransientConnectionException
-                    || cause instanceof SQLException sqlException
-                    && sqlException.getSQLState() != null
-                    && sqlException.getSQLState().startsWith("08")) {
+                    || cause instanceof SQLException sql
+                    && sql.getSQLState() != null
+                    && sql.getSQLState().startsWith("08")) {
                 return true;
             }
         }

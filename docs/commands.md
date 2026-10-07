@@ -200,11 +200,13 @@ curl.exe -i http://localhost:8082/actuator/metrics
 curl.exe -i http://localhost:8080/actuator/health
 curl.exe -i http://localhost:8080/actuator/metrics
 
-# Optimized-profile cache counters (requires optimized read service)
-curl.exe -s http://localhost:8082/actuator/metrics/result.cache.hit
-curl.exe -s http://localhost:8082/actuator/metrics/result.cache.miss
-curl.exe -s http://localhost:8082/actuator/metrics/result.cache.negative.hit
-curl.exe -s http://localhost:8082/actuator/metrics/result.cache.lock.wait
+# Optimized-profile cache metrics (requires optimized read service)
+# Spring's built-in cache.gets counter replaces the old result.cache.* custom counters.
+curl.exe -s "http://localhost:8082/actuator/metrics/cache.gets?tag=name:result&tag=result:hit"
+curl.exe -s "http://localhost:8082/actuator/metrics/cache.gets?tag=name:result&tag=result:miss"
+# Database read count via circuit-breaker call counter
+curl.exe -s "http://localhost:8082/actuator/metrics/resilience4j.circuitbreaker.calls?tag=name:shard1Database"
+curl.exe -s "http://localhost:8082/actuator/metrics/resilience4j.circuitbreaker.calls?tag=name:shard2Database"
 
 # Circuit-breaker state and events (optimized read service and gateway)
 curl.exe -s http://localhost:8082/actuator/circuitbreakers
@@ -218,6 +220,13 @@ curl.exe -s "http://localhost:8080/actuator/metrics/resilience4j.circuitbreaker.
 curl.exe -s "http://localhost:8082/actuator/metrics/resilience4j.circuitbreaker.state?tag=name:shard1Database"
 curl.exe -s "http://localhost:8082/actuator/metrics/resilience4j.circuitbreaker.state?tag=name:shard2Database"
 curl.exe -s "http://localhost:8080/actuator/metrics/resilience4j.circuitbreaker.state?tag=name:readService"
+
+# Bulkhead state and metrics (optimized read service only)
+curl.exe -s http://localhost:8082/actuator/bulkheads
+curl.exe -s http://localhost:8082/actuator/bulkheadevents
+curl.exe -s "http://localhost:8082/actuator/metrics/resilience4j.bulkhead.available.concurrent.calls?tag=name:shard1Database"
+curl.exe -s "http://localhost:8082/actuator/metrics/resilience4j.bulkhead.available.concurrent.calls?tag=name:shard2Database"
+curl.exe -s "http://localhost:8082/actuator/metrics/resilience4j.bulkhead.max.allowed.concurrent.calls?tag=name:shard1Database"
 ```
 
 Example gateway requests:
@@ -464,12 +473,26 @@ These commands read raw files only; they do not run load tests:
 & .\.venv\Scripts\python.exe .\load-tests\report\make_report.py --profile naive
 & .\.venv\Scripts\python.exe .\load-tests\report\make_report.py --profile optimized
 & .\.venv\Scripts\python.exe .\load-tests\report\make_comparison.py
+& .\.venv\Scripts\python.exe .\load-tests\report\make_scaling.py --mode hot
 ```
 
 `make_report.py` also accepts repeatable `--alias OLD=NEW`, for example
 `--profile naive --alias baseline-confirmation=baseline`. Profile summaries
 remain in each profile folder; profile charts go to its `charts` folder;
 comparison charts are written to `results\comparison`.
+
+### Scaling test runner (1, 2, 3 instances)
+
+To run the automated arrival-rate scaling test across 1, 2, and 3 instances and
+generate scaling comparison charts:
+
+```powershell
+.\scripts\run-scaling-test.ps1
+```
+
+Comparison charts (`scaling-hot-p95.png`, `scaling-hot-average.png`,
+`scaling-hot-delivered.png`, and `scaling-hot-summary-table.png`) are written to
+`load-tests\results\comparison\`.
 
 ## 8. Recipes
 

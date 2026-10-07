@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $logsDir = Join-Path $repoRoot "logs"
 $statePath = Join-Path $logsDir "start-stack-state.json"
-. (Join-Path $PSScriptRoot "stack-common.ps1")
+. (Join-Path $PSScriptRoot "stack-helpers.ps1")
 
 if (-not (Test-Path -LiteralPath $statePath)) {
     throw "Stack state was not found at $statePath."

@@ -1,11 +1,11 @@
 package com.ouresults.gateway.web;
 
+import com.ouresults.gateway.dto.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
 import org.springframework.http.codec.ServerCodecConfigurer;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
@@ -28,11 +28,10 @@ public class GatewayProblemDetailHandler {
             HttpStatusCode status,
             String detail
     ) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
-        problem.setInstance(exchange.getRequest().getURI());
+        ApiResponse<Void> body = ApiResponse.error(status.value(), detail);
         return ServerResponse.status(status)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .bodyValue(problem)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
                 .flatMap(response -> response.writeTo(exchange, new ServerResponse.Context() {
                     @Override
                     public List<org.springframework.http.codec.HttpMessageWriter<?>> messageWriters() {

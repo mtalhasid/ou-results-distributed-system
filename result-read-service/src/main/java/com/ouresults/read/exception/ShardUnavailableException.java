@@ -1,4 +1,4 @@
-package com.ouresults.read.service;
+package com.ouresults.read.exception;
 
 public class ShardUnavailableException extends RuntimeException {
     public ShardUnavailableException(String shard, Throwable cause) {

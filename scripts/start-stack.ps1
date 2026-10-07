@@ -22,7 +22,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $logsDir = Join-Path $repoRoot "logs"
 $statePath = Join-Path $logsDir "start-stack-state.json"
-$helperPath = Join-Path $PSScriptRoot "stack-common.ps1"
+$helperPath = Join-Path $PSScriptRoot "stack-helpers.ps1"
 . $helperPath
 $readPorts = @(Get-ReadInstancePorts -Count $Instances)
 $selectedProfile = $Profile.ToLowerInvariant()

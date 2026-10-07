@@ -15,6 +15,7 @@ const statusCodes = {
   200: new Counter("gateway_status_200"),
   400: new Counter("gateway_status_400"),
   429: new Counter("gateway_status_429"),
+  503: new Counter("gateway_status_503"),
   other: new Counter("gateway_status_other"),
 };
 const acceptedDuration = new Trend("gateway_accepted_duration");

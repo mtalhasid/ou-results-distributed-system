@@ -1,6 +1,6 @@
 # Load Test Summary
 
-Generated: 2026-10-03 04:15:52 India Standard Time
+Generated: 2026-10-05 02:28:50 India Standard Time
 
 ## VU baseline
 
@@ -48,6 +48,8 @@ Values are grouped by label and mode, then medianed across matching runs. Latenc
 | session2 | uniform | 25 | 1.03 | 0.56 | 0.000% | 0.000% (0) | 100.00% | 50 |
 | session2 | uniform | 50 | 0.73 | 0.34 | 0.000% | 0.000% (0) | 100.00% | 50 |
 | session2 | uniform | 75 | 1.34 | 0.60 | 0.000% | 0.549% (16) | 99.45% | 66 |
+| session3 | hot | 50 | 4.80 | 1.95 | 0.000% | 9.019% (177) | 90.98% | 208 |
+| session3 | hot | 75 | 6.14 | 2.01 | 1.447% | 12.189% (355) | 87.81% | 247 |
 
 ### Individual arrival-rate runs
 
@@ -97,3 +99,9 @@ Values are grouped by label and mode, then medianed across matching runs. Latenc
 | session2 | uniform | 75 | 1 | 1.34 | 0.60 | 0.000% | 0.549% (16) | 99.45% | 66 |
 | session2 | uniform | 75 | 2 | 0.62 | 0.34 | 0.000% | 0.000% (0) | 100.00% | 50 |
 | session2 | uniform | 75 | 3 | 8.09 | 2.34 | 0.150% | 8.137% (237) | 91.86% | 286 |
+| session3 | hot | 50 | 1 | 10.00 | 6.46 | 54.501% | 26.955% (529) | 73.04% | 300 |
+| session3 | hot | 50 | 2 | 0.87 | 0.46 | 0.000% | 0.153% (3) | 99.85% | 53 |
+| session3 | hot | 50 | 3 | 4.80 | 1.95 | 0.000% | 9.019% (177) | 90.98% | 208 |
+| session3 | hot | 75 | 1 | 6.14 | 2.01 | 1.447% | 12.189% (355) | 87.81% | 247 |
+| session3 | hot | 75 | 2 | 10.00 | 5.99 | 18.487% | 42.781% (1246) | 57.21% | 300 |
+| session3 | hot | 75 | 3 | 1.72 | 0.93 | 0.000% | 3.777% (110) | 96.22% | 122 |
