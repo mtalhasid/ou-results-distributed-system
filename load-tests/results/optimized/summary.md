@@ -1,6 +1,6 @@
 # Load Test Summary
 
-Generated: 2026-10-08 03:03:04 India Standard Time
+Generated: 2026-10-09 00:45:44 India Standard Time
 
 ## Arrival-rate runs
 
@@ -30,6 +30,9 @@ Values are grouped by label and mode, then medianed across matching runs. Latenc
 | scale-3inst | hot | 25 | 0.62 | 0.42 | 0.000% | 0.000% (0) | 100.00% | 50 |
 | scale-3inst | hot | 50 | 0.73 | 0.11 | 0.000% | 0.000% (0) | 100.00% | 50 |
 | scale-3inst | hot | 75 | 0.02 | 0.03 | 0.000% | 0.000% (0) | 100.00% | 50 |
+| stress-1inst | hot | 150 | 0.01 | 0.00 | 0.000% | 0.000% (0) | 100.00% | 75 |
+| stress-1inst | hot | 300 | 0.37 | 0.06 | 0.000% | 0.000% (0) | 100.00% | 150 |
+| stress-1inst | hot | 500 | 0.01 | 0.01 | 0.000% | 0.000% (0) | 100.00% | 250 |
 | verify-bulkhead | hot | 50 | 0.90 | 0.39 | 0.000% | 0.000% (0) | 100.00% | 50 |
 
 ### Individual arrival-rate runs
@@ -102,4 +105,13 @@ Values are grouped by label and mode, then medianed across matching runs. Latenc
 | scale-3inst | hot | 75 | 1 | 0.02 | 0.03 | 0.000% | 0.000% (0) | 100.00% | 50 |
 | scale-3inst | hot | 75 | 2 | 0.01 | 0.02 | 0.000% | 0.000% (0) | 100.00% | 50 |
 | scale-3inst | hot | 75 | 3 | 0.72 | 0.12 | 0.000% | 0.000% (0) | 100.00% | 50 |
+| stress-1inst | hot | 150 | 1 | 0.01 | 0.00 | 0.000% | 0.000% (0) | 100.00% | 75 |
+| stress-1inst | hot | 150 | 2 | 0.01 | 0.01 | 0.000% | 0.000% (0) | 100.00% | 75 |
+| stress-1inst | hot | 150 | 3 | 0.01 | 0.00 | 0.000% | 0.000% (0) | 100.00% | 75 |
+| stress-1inst | hot | 300 | 1 | 0.39 | 0.06 | 0.105% | 0.200% (23) | 99.80% | 154 |
+| stress-1inst | hot | 300 | 2 | 0.37 | 0.06 | 0.000% | 0.000% (0) | 100.00% | 150 |
+| stress-1inst | hot | 300 | 3 | 0.01 | 0.02 | 0.000% | 0.000% (0) | 100.00% | 150 |
+| stress-1inst | hot | 500 | 1 | 0.01 | 0.01 | 0.000% | 0.000% (0) | 100.00% | 250 |
+| stress-1inst | hot | 500 | 2 | 0.01 | 0.01 | 0.005% | 0.000% (0) | 100.00% | 250 |
+| stress-1inst | hot | 500 | 3 | 0.01 | 0.01 | 0.000% | 0.000% (0) | 100.00% | 250 |
 | verify-bulkhead | hot | 50 | 1 | 0.90 | 0.39 | 0.000% | 0.000% (0) | 100.00% | 50 |

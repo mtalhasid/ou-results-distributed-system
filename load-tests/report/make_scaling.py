@@ -22,13 +22,16 @@ RAW_DIR = RESULTS_DIR / "optimized" / "raw"
 OUTPUT_DIR = RESULTS_DIR / "comparison"
 
 INSTANCE_CONFIGS = {
+    "stress-1inst": {"label": "1 instance (stress)", "color": "#ef4444"},
+    "stress-2inst": {"label": "2 instances (stress)", "color": "#f59e0b"},
+    "stress-3inst": {"label": "3 instances (stress)", "color": "#16a34a"},
     "scale-1inst": {"label": "1 instance", "color": "#ef4444"},
     "scale-2inst": {"label": "2 instances", "color": "#f59e0b"},
     "scale-3inst": {"label": "3 instances", "color": "#16a34a"},
 }
 
 RUN_PATTERN = re.compile(
-    r"^(?P<label>scale-\dinst)-(?P<mode>hot|uniform)-arrival-"
+    r"^(?P<label>(?:stress|scale)-\dinst)-(?P<mode>hot|uniform)-arrival-"
     r"(?P<peak>\d+)-run(?P<run>\d+)\.json$"
 )
 
@@ -87,7 +90,7 @@ def read_runs(mode: str) -> list[Run]:
     if not RAW_DIR.exists():
         raise FileNotFoundError(f"Missing raw-results directory: {RAW_DIR}")
     runs = []
-    for path in sorted(RAW_DIR.glob("scale-*-arrival-*-run*.json")):
+    for path in sorted(RAW_DIR.glob("*inst-*-arrival-*-run*.json")):
         match = RUN_PATTERN.fullmatch(path.name)
         if match is None or match.group("mode") != mode:
             continue
