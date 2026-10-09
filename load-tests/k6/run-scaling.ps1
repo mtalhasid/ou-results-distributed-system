@@ -16,7 +16,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$repoRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$scriptsDir = Join-Path $repoRoot "scripts"
 $instanceCounts = @(1, 2, 3)
 $dockerCommand = Get-Command docker -ErrorAction Stop
 
@@ -32,14 +33,14 @@ foreach ($count in $instanceCounts) {
     if (Test-Path -LiteralPath $statePath) {
         Write-Host "Stopping any running stack..."
         try {
-            & (Join-Path $PSScriptRoot "stop-stack.ps1")
+            & (Join-Path $scriptsDir "stop-stack.ps1")
         } catch {
             Write-Host "Previous stack already stopped."
         }
     }
 
     Write-Host "Starting stack with $count instance(s)..."
-    & (Join-Path $PSScriptRoot "start-stack.ps1") -Profile optimized -Instances $count -LoadTest
+    & (Join-Path $scriptsDir "start-stack.ps1") -Profile optimized -Instances $count -LoadTest
 
     Write-Host "Flushing cache..."
     & $dockerCommand.Source compose exec -T redis-cache redis-cli FLUSHDB
@@ -79,5 +80,5 @@ if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
 
 Write-Host ""
 Write-Host "Stopping stack..."
-& (Join-Path $PSScriptRoot "stop-stack.ps1") -StopContainers
+& (Join-Path $scriptsDir "stop-stack.ps1") -StopContainers
 Write-Host "Done. Charts written to load-tests\results\comparison\"

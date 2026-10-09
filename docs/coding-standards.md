@@ -1,15 +1,40 @@
-# Coding standards
+# Coding Standards & Architecture Guidelines
 
-- Use Java 21 and the Spring Boot version already configured for the module. Prefer framework features and established libraries over hand-written infrastructure.
-- Use constructor injection only, with Lombok `@RequiredArgsConstructor` and `final` dependencies. Do not use `@Autowired`.
-- Use Lombok to remove boilerplate (`@Slf4j`, `@Getter`, and `@Builder` where useful). Do not write getters, setters, `equals`, `hashCode`, or `toString` by hand. Do not use `@Data` on JPA entities.
-- Use Java records for DTOs, request and response models, and immutable configuration.
-- Bind settings with `@ConfigurationProperties` records annotated with `@Validated`; avoid scattered `@Value` fields. Environment-specific values use `${VAR:default}`.
-- Use Jakarta Bean Validation (`@Pattern` and custom constraints) for input validation rather than hand-written validation logic. Annotate controllers with `@Validated` and put validation constraints directly on path variables and request parameters.
-- **Every response, success and error, uses one envelope record `ApiResponse<T>`** with fields `status` (`"success"` or `"error"`), `statusCode` (the HTTP status code as an integer), `message` (a short human-readable string), and `data` (`null` on errors, the payload on success). Each service defines its own copy of the record; no code is shared between services. The `ProblemDetail` type is not used in responses.
-- **All custom exceptions and the single `@RestControllerAdvice` live in an `exception` package.** No `@ExceptionHandler` methods in controllers. One handler maps each exception to an `ApiResponse` with the correct status: unknown college → 400, validation → 400, shard unavailable → 503 with `Retry-After`, unexpected → 500 with a generic message (details in the log only).
-- Return errors as `ApiResponse` through the one central `@RestControllerAdvice` handler.
-- Use parameterized SLF4J messages. Include the correlation ID on every application log line; never log secrets or full email addresses.
-- Prefer Actuator and built-in Micrometer metrics; add custom counters only when no built-in metric fits.
-- Keep classes small and single-purpose. Remove dead code and avoid comments that merely restate the code.
-- Whenever a script, port, parameter, or run procedure changes, update `docs/commands.md` in the same change.
+These standards apply to all services across the repository.
+
+---
+
+## 1. Java & Spring Boot Guidelines (All Java Services)
+
+* **Use Framework Annotations & Established Libraries:** Always prefer native Spring and established libraries over hand-written infrastructure. Never re-invent wheels (e.g., use `@RabbitListener`, `@Transactional`, `@Validated`, `@Repository`, `@Cacheable`, Spring Data JPA). Do not write hundreds of lines of custom synchronization or locking when standard framework annotations exist.
+* **Records for DTOs:** All request payloads, response envelopes, DTOs, and immutable configuration properties must be Java `record`s.
+* **Dependency Injection:** Use constructor injection only via Lombok `@RequiredArgsConstructor` with `final` fields. Never use `@Autowired`.
+* **Lombok for Boilerplate:** Use `@Slf4j`, `@Getter`, and `@Builder` where appropriate. Never write manual getters, setters, or constructors. Do not use `@Data` on JPA entities.
+* **Unified API Response Envelope:** Every HTTP response must use `ApiResponse<T>` with `status`, `statusCode`, `message`, and `data`. Provide `@Builder` and standard factory helpers.
+* **Centralized Exception Handling:** All exceptions must be routed through a central `@RestControllerAdvice` in the `exception` package returning consistent `ApiResponse` structures.
+* **Validation:** Use Jakarta Bean Validation (`@Pattern`, `@NotNull`, `@Size`) directly on controllers with `@Validated`.
+* **Logging & Observability:** Include `correlationId` on all logs using MDC and parameterized SLF4J messages. Never log passwords, tokens, or database secrets.
+
+---
+
+## 2. Node.js, Express & TypeScript Guidelines (Ingestion & Account Services)
+
+* **Clear Modular Directory Structure:** Every service must enforce a strict separation of concerns into dedicated directories:
+  * `controllers/` - HTTP request handling, response formatting, status codes.
+  * `services/` - Core business logic, batching, orchestration.
+  * `routes/` - Express router definitions and middleware bindings.
+  * `types/` - TypeScript interfaces, type definitions, and DTO types.
+  * `utils/` - Shared helper utilities, parsers, and formatters.
+  * `config/` - Environment variables, schema maps, and connection clients.
+* **Class-Based Architecture:** Do not write loose standalone functions for core handlers. Controllers, services, and publishers must be organized into clean classes (e.g., `IngestionController`, `IngestionService`, `RabbitMqPublisher`) with methods defined inside the class.
+* **Single Responsibility Principle:** Each file must do exactly one job. A controller file handles only HTTP interaction; a service file handles only business operations; a route file only maps endpoints.
+* **Type Safety & Runtime Validation:** Use TypeScript strict mode and Zod schemas for runtime validation of incoming files and request bodies.
+* **Logging:** Use `pino` with JSON formatting, extracting and propagating `X-Correlation-Id` across all logs and message headers.
+
+---
+
+## 3. General Repository Rules
+
+* **No Custom Infrastructure When Libraries Exist:** Do not hand-build infrastructure that a standard framework feature or well-known library already provides. In Spring services, use native messaging listeners, JSON message converters, declarative retry configurations, and dead-letter routing. In Node services, use established libraries (such as amqp-connection-manager, multer, csv-parse, zod, pino) for connection pooling, streaming, validation, and logging instead of writing manual plumbing. If no standard feature exists for something, justify it and keep any custom code minimal.
+* **Documentation Alongside Code:** Whenever a script, port, parameter, or run procedure changes, update `docs/getting-started.md` and the root README run section in the same change.
+* **Clean Code:** Keep classes small, focused, and single-purpose. Do not commit dead code or boilerplate comments that merely restate what the code does.

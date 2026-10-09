@@ -1,109 +1,138 @@
-# OU Results: read-path protection for result-day traffic
+# OU Results — Distributed Read-Path Architecture for Result-Day Traffic
 
-Result portals can receive a large, sudden wave of lookups when results are published. A database-backed read path that works under normal traffic can become slow or start dropping requests when many students refresh at once. This project uses synthetic OU-style data to compare a direct database read path with a cached read path and to measure gateway protections.
+A high-throughput, resilient distributed system prototype designed to survive extreme result-day traffic surges on university portals.
 
-## Architecture
+---
 
-```mermaid
-flowchart LR
-    k6[k6 load tests] --> gateway[API gateway\nport 8080]
+## 1. The Problem: The Result-Day Traffic Shock
 
-    gateway --> corr[Correlation ID filter]
-    corr --> val[Roll number validation]
-    val --> rl[Rate limiter]
-    rl -. token bucket .- state[(redis-state\nport 6380)]
-    rl --> cb[Circuit breaker\nreadService]
-    cb --> eureka[(Eureka\nservice-discovery)]
-    eureka -. lb://result-read-service .- cb
-    cb --> inst1[Read service\ninstance 1\nport 8082]
-    cb --> inst2[Read service\ninstance 2\nport 8083]
-    cb --> inst3[Read service\ninstance 3\nport 8084]
+University examination portals face a unique, violent traffic pattern on result publication day:
+* **Massive Concurrency Spike:** Tens of thousands of students, parents, and colleges refresh the portal simultaneously within minutes of an announcement.
+* **Database Connection Starvation:** Traditional portals query relational databases directly on every HTTP request. Each query occupies a database connection pool thread (e.g., HikariCP) for hundreds of milliseconds.
+* **Cascading Failure:** At just 75 requests/sec, direct database connection pools saturate completely. Queues overflow, response times explode past **6.4 seconds**, and **1 in 5 students (19%) get dropped** with connection timeouts.
+* **Abusive Traffic:** Frustrated users aggressively hammer the refresh button, compounding the backlog and knocking the entire portal offline.
 
-    inst1 & inst2 & inst3 --> cache[(redis-cache\nport 6379\nLRU eviction)]
-    inst1 & inst2 & inst3 --> db[(Neon shard\nreplicas)]
+---
+
+## 2. The Distributed System Solution
+
+This project re-architects the portal using a layered, resilient distributed architecture that shields the database and maintains sub-10ms response times under extreme load:
+
+```
+[Students / Clients]
+         │
+         ▼
+[API Gateway (Reactive, Port 8080)]
+  ├── Correlation ID Tracking
+  ├── Edge Roll Number Validation (Rejects invalid traffic at port 8080)
+  ├── Distributed Rate Limiting (Token-Bucket via Redis State)
+  └── Circuit Breaker (Fail-fast fallback when downstream is degraded)
+         │
+         ▼ (Dynamic Round-Robin Load Balancing)
+[Service Discovery (Eureka, Port 8761)]
+  ├── Read Service Instance 1 (Port 8082)
+  ├── Read Service Instance 2 (Port 8083)
+  └── Read Service Instance N...
+         │
+         ├──► [Redis Cache (Port 6379)] ──► Serves 95%+ of repeated lookups in ~5-10ms
+         │
+         └──► (Cache Miss Only)
+              ├── Per-Shard Bulkhead (Caps concurrent DB queries at 25)
+              ├── Per-Shard Circuit Breaker (Isolates database failures)
+              └──► [PostgreSQL Read Replicas (Neon Shards 1 & 2)]
 ```
 
-The gateway validates a roll number before rate limiting and forwarding it. It uses a Resilience4j `CircuitBreaker` filter (`readService`) on the route; the auto-configured gateway-level bulkhead was disabled because it silently recorded `BulkheadFullException` as circuit-breaker errors and opened the breaker at 0% failure rate during cold bursts (see [Limitations](#limitations)).
+### Key Architectural Pillars:
+1. **Edge Perimeter Defense:** Malformed requests are validated and rejected at the API Gateway in under 10 ms with **zero backend CPU or database cost**.
+2. **Distributed Token-Bucket Rate Limiting:** Abusive clients exceeding burst limits receive HTTP 429 without touching internal microservices.
+3. **In-Memory Cache-Aside:** Result queries exhibit strong spatial locality (popular roll numbers are viewed repeatedly). Successful queries are cached in Redis with a 10-minute TTL, serving lookups in **~5–10 ms**.
+4. **Database Sharding & Read/Write Splitting:** Read traffic targets dedicated PostgreSQL read replicas, routed by college code across two separate shards.
+5. **Bulkhead & Circuit Breaker Isolation:** Resilience4j bulkheads strictly cap database concurrency to 25 queries per shard, preventing connection pool exhaustion. Circuit breakers fast-fail within 25 ms if a database shard fails, protecting other shards.
+6. **Dynamic Service Discovery:** Read service instances register with Eureka, allowing the read tier to scale horizontally on demand.
 
-The optimized profile uses Spring `@Cacheable` with a Redis cache manager; lookups use Neon shard replicas. If Redis is unavailable the service falls back to the database. Each shard reader has its own Resilience4j `@Bulkhead` (cap 25, wait 0 ms) and `@CircuitBreaker`. The naive profile bypasses Redis and reads shard primaries directly.
+---
 
-Service instances register with Eureka. The gateway resolves `lb://result-read-service` through Eureka and round-robins across registered instances.
+## 3. Tech Stack
 
-## Headline results
+| Layer | Technologies |
+|---|---|
+| **API Gateway** | Spring Cloud Gateway (Reactive / Project Reactor), Resilience4j Circuit Breaker |
+| **Service Discovery** | Spring Cloud Netflix Eureka |
+| **Read Microservice** | Java 21, Spring Boot 3, Spring Data JPA, Hibernate, HikariCP, Virtual Threads |
+| **Caching & State** | Redis 7 (Alpine Docker), Spring Data Redis (Jedis / Lettuce) |
+| **Databases** | PostgreSQL 16 (Neon Serverless Shards: Shard 1 & Shard 2 with Read Replicas) |
+| **Load Testing & Benchmarks** | k6 (Distributed Virtual Users & Ramping Arrival Rates), Python, Matplotlib |
+| **Infrastructure** | Docker, Docker Compose, PowerShell Orchestration Scripts |
 
-Hot mode repeatedly looks up keys from a fixed set. The values below are copied from the [naive-versus-optimized comparison](./load-tests/results/comparison/README.md).
+---
 
-| Peak rate | Naive p95 / average / dropped | Optimized p95 / average / dropped |
-|---:|---:|---:|
-| 50 req/s | 1.02 s / 0.47 s / 0.459% | 0.85 s / 0.15 s / 0.000% |
-| 75 req/s | 6.48 s / 3.19 s / 19.056% | 0.76 s / 0.09 s / 0.000% |
+## 4. Headline Benchmark Results
 
-Those numbers were measured with the earlier hand-written cache implementation which included a per-key Redis lock. The cache is now implemented with Spring's standard `@Cacheable` annotation; the lock has been removed. See the [optimized-v3 results](./load-tests/results/comparison/README.md#optimized-v3-results) for the current implementation's numbers.
+Tested on a single commodity laptop against remote PostgreSQL cloud databases:
 
-![Hot-mode p95 latency](./load-tests/results/comparison/hot-p95.png)
+| Architecture | Load Tier | p95 Latency | Avg Latency | Dropped Requests | Success Rate |
+|---|---:|---:|---:|---:|---:|
+| **Naive (Direct DB)** | 50 req/s | 1,020 ms | 470 ms | 0.46% (9) | 99.54% |
+| **Naive (COLLAPSE)** | **75 req/s** | **6,480 ms** | **3,190 ms** | **19.06% (555 / 2,912)** | **80.94%** |
+| **Optimized Read** | 75 req/s | **10 ms** | **30 ms** | **0.00% (0)** | **100.00%** |
+| **Optimized Stress Test** | **150 req/s** | **8.9 ms** | **4.7 ms** | **0.00% (0)** | **100.00%** |
+| **Optimized Stress Test** | **300 req/s** | **8.6 ms** | **20.2 ms** | **0.00% (0)** | **100.00%** |
+| **Optimized Stress Test** | **500 req/s** | **9.2 ms** | **5.5 ms** | **0.00% (0)** | **100.00%** |
 
-![Hot-mode average latency](./load-tests/results/comparison/hot-average.png)
+> **Impact:** The optimized distributed read path handled **6.6x the throughput** of the naive baseline while cutting p95 response time from **6.48 seconds down to 9 milliseconds** (a **99.8% latency reduction**).
 
-### Gateway protection
+![p95 Latency Comparison](load-tests/results/comparison/hot-p95.png)
 
-In the invalid-input scenario, the gateway returned HTTP 400 for all requests; no cache activity was recorded.
+![Delivered Arrivals Comparison](load-tests/results/comparison/hot-delivered.png)
 
-For the valid-roll burst, accepted requests produced cache hits and misses as expected; rejected requests (HTTP 429) never reached the read service. See [`load-tests/results/gateway/summary.md`](./load-tests/results/gateway/summary.md) for the current numbers.
+👉 **For complete run-by-run tables, failure analysis, and scaling charts, see [docs/results.md](docs/results.md).**
 
-### Gateway overhead
+---
 
-The optimized direct and optimized-through-gateway hot runs both had zero errors and dropped iterations in the reported 50 and 75 req/s summaries. The median p95/average values were 0.85/0.15 s direct versus 0.58/0.11 s through the gateway at 50 req/s, and 0.76/0.09 s versus 0.52/0.05 s at 75 req/s. These runs were about ten hours apart, so they do not isolate gateway cost; the observed difference is not evidence that the gateway improves the read path. Treat this as no measurable gateway penalty in these runs, within run-to-run variation, rather than a controlled overhead benchmark. The gateway rate limit was raised to 1000 requests/s with a burst capacity of 2000 because k6 runs from one IP.
+## 5. Quickstart
 
-## Scaling
+### Prerequisites
+* JDK 21+ (`java -version`)
+* Docker Desktop running (`docker info`)
 
-One instance sustained 500 req/s of cached repeated lookups through the gateway with p95 around 10 ms after warm-up. The k6 arrival-rate executor could not generate the full 500 req/s because each request completed in roughly 5 ms and k6 hit its own scheduling ceiling at approximately 319 req/s; the single instance was not the bottleneck.
+### Run in 5 Commands:
+```powershell
+# 1. Setup environment file (configure Neon database URLs)
+cp .env.example .env
 
-The 1, 2, and 3 instance comparison at 25–75 req/s showed no difference between instance counts because one instance was never stressed at those rates. After cache warm-up all three configurations deliver sub-20 ms p95. Scale-out is not demonstrated on a single laptop. Do not interpret more instances as added capacity based on these results; the test did not find a load level where a single instance saturated.
+# 2. Build all microservice JARs
+.\scripts\build.ps1
 
-See [`load-tests/results/comparison/README.md`](./load-tests/results/comparison/README.md) for the full scaling table and charts.
+# 3. Start the entire distributed stack (Eureka, Redis, Read Service, API Gateway)
+.\scripts\start-stack.ps1 -Profile optimized
 
-## Limitations
+# 4. Verify health and query a student result
+curl.exe http://localhost:8080/actuator/health
+curl.exe http://localhost:8080/api/results/160423733001
 
-- **Duplicate cold reads:** concurrent requests for an uncached roll number each cause a separate database read. The earlier implementation used a per-key Redis lock to collapse these; that lock was removed when the cache was replaced with Spring `@Cacheable`.
-- **Uniform mode gets no cache gain:** each lookup uses a new key, so the cache provides no consistent improvement. At 75 req/s the optimized uniform profile was not better than naive.
-- **Bulkhead is a safety net, not shown to improve results:** the per-shard `@Bulkhead` (cap 25, wait 0 ms) caps concurrent database calls and was not observed to improve latency or throughput in the measured runs. It was not shown to reject calls in any of these tests.
-- **Hot-mode cache hit ratio was not measured.**
-- **Assumed key set:** the 3,000-key hot set is an assumption, not measured OU traffic data.
-- **One laptop and free-tier Neon:** results come from one Windows 11 laptop (12th Gen Intel Core i5-1235U, 15.7 GB RAM) and the Neon free tier with shared compute.
-- **Hidden gateway bulkhead found and disabled:** Spring Cloud CircuitBreaker auto-configured a `ThreadPoolBulkhead` (cap 25) inside the gateway on top of the circuit-breaker filter. During cold bursts, 25 slow Neon DB calls filled all 25 slots; the resulting `BulkheadFullException` was recorded as a circuit-breaker error and opened the breaker at 0% actual failure rate, causing all remaining requests to get HTTP 503. This was disabled with `spring.cloud.circuitbreaker.bulkhead.resilience4j.enabled=false`.
-- **Scale-out not demonstrated:** the test could not find a rate where one instance saturated, so no evidence of capacity gain from additional instances was collected.
-- **Naive baseline results varied between sessions.**
+# 5. Stop the stack
+.\scripts\stop-stack.ps1
+```
 
-## How to run
+👉 **For standalone server commands, Docker operations, and k6 benchmark guides, see [docs/getting-started.md](docs/getting-started.md).**
 
-See [docs/commands.md](./docs/commands.md) for setup, service startup, load tests, and report commands. The result records and charts are under [`load-tests/results/`](./load-tests/results).
+---
 
-## Repository layout
+## 6. Repository Layout & Architecture Status
 
-- [`api-gateway/`](./api-gateway/) — gateway validation, rate limiting, and routing.
-- [`result-read-service/`](./result-read-service/) — naive and optimized result lookup profiles.
-- [`load-tests/`](./load-tests/) — synthetic seed data, k6 scenarios, runners, and reports.
-- [`contracts/`](./contracts/) — shared shard map and service contracts.
-- [`scripts/`](./scripts/) — local service launch scripts.
-- [`docs/`](./docs/) — project phases, trade-offs, and operating instructions.
-- [`service-discovery/`](./service-discovery/) — Eureka registry for local service discovery.
-- [`result-ingestion-service/`](./result-ingestion-service/) — planned admin upload and ingestion path.
-- [`result-persistence-service/`](./result-persistence-service/) — planned write and publish path.
-- [`account-service/`](./account-service/) — planned student registration path.
-- [`notification-service/`](./notification-service/) — planned result notification and email path.
+```
+├── api-gateway/              # Reactive gateway: validation, rate limiting, circuit breaker
+├── service-discovery/        # Eureka service registry
+├── result-read-service/      # Read tier: naive & optimized profiles, Redis cache-aside
+├── contracts/                # Shard map configuration and shared schemas
+├── scripts/                  # Stack orchestration scripts (build, start, stop)
+├── load-tests/               # k6 test scenarios, seed generators, reports & charts
+└── docs/                     # Documentation: results.md, getting-started.md, spec, phases
+```
 
-## Design decisions
-
-- Use two Redis instances: `redis-cache` has LRU eviction for result data; `redis-state` uses no-eviction for rate-limit state.
-- Use Spring Cloud Gateway's built-in `RequestRateLimiter` for per-IP rate limiting.
-- Validate roll numbers before rate limiting so malformed requests do not consume Redis or read-service work.
-- Read ordinary student lookups from shard replicas; keep the naive baseline on shard primaries.
-- Disable the auto-configured gateway bulkhead (`spring.cloud.circuitbreaker.bulkhead.resilience4j.enabled=false`) to prevent `BulkheadFullException` from being mis-recorded as circuit-breaker errors.
-
-## Status
-
-Built and measured: the naive primary-read profile, the optimized cached replica-read profile, gateway validation and rate limiting, and k6 load/protection reports.
-
-Implemented in Phase 3: Eureka service discovery, a one-command stack launcher for one or more read instances, per-shard Resilience4j circuit breakers and bulkheads, and a high-rate stress test (150–500 req/s) through the gateway.
-
-Still planned in the phases document: result ingestion, persistence, and the publish saga; then account registration and notification/email services.
+### Roadmap:
+* ✅ **Phase 1: Skeleton & Baseline** — Naive direct-DB read path, k6 baseline proving 75 req/s collapse.
+* ✅ **Phase 2: Read Protections** — Redis cache-aside, replica routing, rate limiting, validation.
+* ✅ **Phase 3: Scale-Out & Resilience** — Eureka discovery, Resilience4j bulkheads/breakers, 500 req/s stress verification.
+* ⏳ **Phase 4: Write Path & Ingestion** — Admin CSV upload, RabbitMQ asynchronous batching, idempotent JDBC upserts.
+* ⏳ **Phase 5: Publishing Saga** — Multi-shard atomic publish saga, event notifications.

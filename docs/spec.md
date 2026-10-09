@@ -1,4 +1,4 @@
-This is a bit inconsistent im not usig Docker everywhere.
+> **Status of this spec:** target architecture for later phases. Local Java services run on the host; Docker Compose is used for Redis (not the full stack). Some Phase 3 items (waiting room) are not implemented. Living checklist: [phases.md](phases.md). Operator commands: [getting-started.md](getting-started.md).
 
 # OU Results: Microservices Project Spec
 

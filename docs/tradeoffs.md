@@ -24,10 +24,10 @@ What makes it cheap:
 
 - Compute scales to zero between publish windows (Cloud Run, Fly.io, or ECS with min tasks = 0)
 - Neon auto-suspends Postgres after idle (already the default on Free)
-- Messaging (Kafka, RabbitMQ) only runs during publish windows — not always on
+- Messaging (Kafka, RabbitMQ) only runs during publish windows - not always on
 - Redis is only needed for the cache and state, not for cold idle time
 
-The honest conclusion: the system is not cost-optimized — it is shape-optimized. A CDN + small backend is cheaper and would serve OU fine. This project builds the distributed version because the shape is the interesting problem.
+The honest conclusion: the system is not cost-optimized - it is shape-optimized. A CDN + small backend is cheaper and would serve OU fine. This project builds the distributed version because the shape is the interesting problem.
 
 ---
 
@@ -47,7 +47,7 @@ The 3-service version that would actually run OU:
 With Redis + Neon + Mailjet, that handles result day fine. It would cost less and be easier to operate.
 
 **Why not build that instead?**
-Because it doesn't demonstrate sharding, saga, DLQ, cache warm-up, or paced consumption — and those are the mechanisms that matter when the shape is real (ticket booking, flash sales, payment systems). The full version exists to show what the shape demands at scale, not to be the cheapest possible OU backend.
+Because it doesn't demonstrate sharding, saga, DLQ, cache warm-up, or paced consumption - and those are the mechanisms that matter when the shape is real (ticket booking, flash sales, payment systems). The full version exists to show what the shape demands at scale, not to be the cheapest possible OU backend.
 
 The README says so, and that's the point. The complexity is deliberate, documented, and justified by the goal (demonstrating the shape at scale), not hidden.
 
@@ -55,7 +55,7 @@ The README says so, and that's the point. The complexity is deliberate, document
 
 ## What this project demonstrates
 
-Not a checklist of patterns — a set of architectural qualities that follow from the shape:
+Not a checklist of patterns - a set of architectural qualities that follow from the shape:
 
 - Horizontally scalable: add read-service instances, add replicas, add shards, without rewriting
 - Independently scalable layers: read and write scale on different axes
@@ -65,7 +65,7 @@ Not a checklist of patterns — a set of architectural qualities that follow fro
 - Consistent where it matters: students read replicas (eventual), email reads primaries (strong)
 - Cost-aware by design: scale-to-zero compute, serverless Postgres, messaging only during publish windows
 
-Patterns like saga, cache-aside, and DLQ are the mechanisms behind these qualities — not the goal.
+Patterns like saga, cache-aside, and DLQ are the mechanisms behind these qualities - not the goal.
 
 ---
 
@@ -107,6 +107,6 @@ In this project:
 - email.send → job queue with pacing and quota. RabbitMQ.
 - results.published → event. Two independent consumers (read service for cache warm-up, notification service for email jobs). Replayable. Kafka.
 
-Honest counter: for two consumers, Redis Streams or Postgres LISTEN/NOTIFY would do. Kafka is here to demonstrate fan-out to independent consumer groups with replay and retention — the pattern that matters when the number of consumers grows (analytics, audit, new services) without touching producers.
+Honest counter: for two consumers, Redis Streams or Postgres LISTEN/NOTIFY would do. Kafka is here to demonstrate fan-out to independent consumer groups with replay and retention - the pattern that matters when the number of consumers grows (analytics, audit, new services) without touching producers.
 
 The README states this explicitly. Kafka is used for exactly one event, and the honest alternative is named.

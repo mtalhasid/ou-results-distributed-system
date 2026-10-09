@@ -141,7 +141,7 @@ def summarize(grouped: dict[tuple[str, int], list[Run]]) -> dict[tuple[str, int]
 
 
 def footer() -> str:
-    readme_path = RESULTS_DIR / "naive" / "README.md"
+    readme_path = RESULTS_DIR / "machine.md"
     try:
         readme = readme_path.read_text(encoding="utf-8")
         machine_match = re.search(r"^- Machine:\s*(.+)$", readme, re.MULTILINE)

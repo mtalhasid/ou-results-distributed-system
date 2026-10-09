@@ -16,21 +16,14 @@ import org.springframework.stereotype.Component;
 import javax.sql.DataSource;
 import java.io.IOException;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 
-/**
- * Shard routing: holds the shard map, the per-thread shard selector, and the
- * two profile-specific HikariDataSource beans wired into an AbstractRoutingDataSource.
- */
 @Configuration
 public class ShardRoutingConfiguration {
-
-    // ── Shard map ────────────────────────────────────────────────────────────
 
     @Bean
     ShardMap shardMap(@Value("${shard-map-path:/app/config/shard-map.yml}") String path) {
@@ -45,10 +38,6 @@ public class ShardRoutingConfiguration {
 
     private record ShardMapDocument(Map<String, String> colleges) {}
 
-    /**
-     * Immutable map of college-code → shard name.
-     * Kept as a standalone bean so services can inject it directly.
-     */
     public record ShardMap(Map<String, String> colleges) {
         public String shardFor(String collegeCode) {
             String shard = colleges.get(collegeCode);
@@ -58,8 +47,6 @@ public class ShardRoutingConfiguration {
             return shard;
         }
     }
-
-    // ── Per-thread shard context ─────────────────────────────────────────────
 
     @Component
     public static class ShardContext {
@@ -83,8 +70,6 @@ public class ShardRoutingConfiguration {
             }
         }
     }
-
-    // ── Data sources ─────────────────────────────────────────────────────────
 
     @Bean("shard1DataSource")
     @Profile("naive")
@@ -129,38 +114,22 @@ public class ShardRoutingConfiguration {
         return routing;
     }
 
-    // ── URL parsing ───────────────────────────────────────────────────────────
-
-    private static HikariDataSource createDataSource(String url) {
-        URI uri;
-        try {
-            uri = new URI(url.startsWith("jdbc:") ? url.substring("jdbc:".length()) : url);
-        } catch (URISyntaxException ex) {
-            throw new IllegalArgumentException("Shard database URL is not a valid PostgreSQL URL", ex);
-        }
-        if (!"postgresql".equals(uri.getScheme()) || uri.getHost() == null) {
-            throw new IllegalArgumentException("Shard database URL must use the PostgreSQL URI format");
-        }
-
-        StringBuilder jdbcUrl = new StringBuilder("jdbc:postgresql://").append(uri.getHost());
-        if (uri.getPort() >= 0) {
-            jdbcUrl.append(':').append(uri.getPort());
-        }
-        jdbcUrl.append(uri.getRawPath());
-        if (uri.getRawQuery() != null) {
-            jdbcUrl.append('?').append(uri.getRawQuery());
-        }
+    private static HikariDataSource createDataSource(String rawUrl) {
+        URI uri = URI.create(rawUrl.startsWith("jdbc:") ? rawUrl.substring(5) : rawUrl);
+        int port = uri.getPort() > 0 ? uri.getPort() : 5432;
+        String query = uri.getRawQuery() != null ? "?" + uri.getRawQuery() : "";
+        String jdbcUrl = "jdbc:postgresql://" + uri.getHost() + ":" + port + uri.getRawPath() + query;
 
         var ds = new HikariDataSource();
-        ds.setJdbcUrl(jdbcUrl.toString());
+        ds.setJdbcUrl(jdbcUrl);
         ds.setDriverClassName("org.postgresql.Driver");
+
         if (uri.getRawUserInfo() != null) {
             String[] creds = uri.getRawUserInfo().split(":", 2);
-            if (creds.length != 2) {
-                throw new IllegalArgumentException("Shard database URL must include username and password");
+            if (creds.length == 2) {
+                ds.setUsername(URLDecoder.decode(creds[0], StandardCharsets.UTF_8));
+                ds.setPassword(URLDecoder.decode(creds[1], StandardCharsets.UTF_8));
             }
-            ds.setUsername(URLDecoder.decode(creds[0], StandardCharsets.UTF_8));
-            ds.setPassword(URLDecoder.decode(creds[1], StandardCharsets.UTF_8));
         }
         return ds;
     }

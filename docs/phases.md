@@ -4,7 +4,7 @@ Read path first. Each phase ends with a checkpoint you can demo. Do not start th
 
 ## Rules for every phase
 
-- Docs alongside, not at the end: update the README, the architecture diagram and the Postman collection as each phase lands.
+- Docs alongside, not at the end: update the root README, `docs/getting-started.md`, `docs/results.md`, the architecture diagram and the Postman collection as each phase lands.
 - Correlation ID and the logging format from spec section 14 go in from the first service, not later.
 - Every k6 run records: N users, p95 latency, error rate, requests per second, machine specs, date. Save results under `load-tests/results/<profile>/` (`naive` or `optimized`).
 - Warm the database with a few requests before each k6 run, and run naive vs optimized at the same N.
@@ -64,6 +64,8 @@ Read path first. Each phase ends with a checkpoint you can demo. Do not start th
 - k6 with 1, 2 and 3 read instances at the same load.
 
 **Checkpoint:** a graph of throughput or p95 against instance count, and a demo of the waiting room admitting users as slots free.
+
+**Implementation note (Phase 3 landed):** Eureka, multi-instance stack launcher, gateway and per-shard circuit breakers/bulkheads, and 1/2/3-instance plus high-rate k6 runs are in place. The waiting-room checkpoint was not shipped.
 
 **Watch out for:** Eureka registration delay (about 30 seconds) after startup, which can cause errors that are not real bugs.
 

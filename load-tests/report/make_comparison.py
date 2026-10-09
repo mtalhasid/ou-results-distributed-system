@@ -159,7 +159,7 @@ def validate_groups(grouped: dict[tuple[str, int], list[Run]], mode: str) -> Non
 
 
 def footer() -> str:
-    readme_path = RESULTS_DIR / "naive" / "README.md"
+    readme_path = RESULTS_DIR / "machine.md"
     readme = readme_path.read_text(encoding="utf-8")
     machine_match = re.search(r"^- Machine:\s*(.+)$", readme, re.MULTILINE)
     machine = (

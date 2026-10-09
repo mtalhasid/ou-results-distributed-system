@@ -1,30 +1,28 @@
-# Read service profiles
+# Result read service
 
-Start the cache container when using the optimized profile:
+`GET /api/results/{rollNo}` returns all rows for that roll as one list.
+Shard routing uses college code from `contracts/shard-map.yml` (two Hikari
+pools). Instances listen on 8082 and upward when started by the stack
+launcher and register with Eureka as `result-read-service`. Responses
+include `X-Instance-Id` when `APP_EXPOSE_INSTANCE_ID=true`.
+
+**naive:** shard primaries, no cache.
+
+**optimized:** Spring `@Cacheable` with `RedisCacheManager` (`redis-cache`
+localhost:6379, 10-minute TTL). Replica URLs
+`SHARD_1_PRIMARY_REPLICA` / `SHARD_2_PRIMARY_REPLICA` from root `.env`. If
+Redis is unavailable the service falls back to the replicas. Per-shard
+Resilience4j `@Bulkhead` (cap 25, wait 0 ms) and `@CircuitBreaker`
+(`shard1Database`, `shard2Database`). Concurrent uncached lookups each hit
+the database; the old per-key Redis lock was removed with `@Cacheable`.
+
+Cache metrics: `/actuator/metrics/cache.gets?tag=name:result&tag=result:hit`
+and `...&tag=result:miss`.
+
+Start from the repository root
+([docs/getting-started.md](../docs/getting-started.md)):
 
 ```powershell
-docker compose up -d redis-cache
+.\scripts\start-stack.ps1 -Profile naive
+.\scripts\start-stack.ps1 -Profile optimized -Instances 3
 ```
-
-Build the service with the repository Maven wrapper, then start either profile
-from the repository root. The launcher defaults to `naive`; optimized uses the
-`SHARD_1_PRIMARY_REPLICA` and `SHARD_2_PRIMARY_REPLICA` values from the root
-`.env` and reads from those replicas.
-
-```powershell
-.\api-gateway\mvnw.cmd -B -f .\result-read-service\pom.xml -DskipTests package
-.\scripts\start-read.ps1
-.\scripts\start-read.ps1 -Profile optimized
-```
-
-The naive profile reads shard primaries without caching. The optimized profile
-uses Spring's standard `@Cacheable` with a `RedisCacheManager`; entries expire
-after 10 minutes. If Redis is unavailable the service falls back to the replica
-databases. Cache metrics are available via Spring's built-in `cache.gets` counter
-under `/actuator/metrics/cache.gets?tag=name:result&tag=result:hit` and
-`/actuator/metrics/cache.gets?tag=name:result&tag=result:miss`.
-
-Concurrent requests for an uncached roll number each cause a separate database
-read. The earlier implementation included a per-key Redis lock that collapsed
-these into one; that lock was removed when the cache was replaced with
-`@Cacheable`.

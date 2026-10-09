@@ -204,7 +204,7 @@ def grouped_medians(
 
 
 def machine_footer() -> str:
-    readme = RESULTS_DIR / "README.md"
+    readme = RESULTS_DIR / "machine.md"
     content = readme.read_text(encoding="utf-8") if readme.exists() else ""
     match = MACHINE_PATTERN.search(content)
     machine = match.group(1).strip() if match else "Machine specifications not recorded"

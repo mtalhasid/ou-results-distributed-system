@@ -16,15 +16,6 @@ public class OptimizedResultReadService implements ResultReadService {
     private final ShardMap shardMap;
     private final ShardDatabaseReader shardDatabaseReader;
 
-    /**
-     * {@code sync = true} ensures only one thread per cache key enters the
-     * method body; all other threads for the same key wait on the result.
-     * This prevents a cold-burst stampede: 1000 requests for the same cold
-     * roll number produce exactly 1 DB read, not 1000.
-     *
-     * <p>The per-shard bulkhead lives on {@link ShardDatabaseReader}, so
-     * cache hits are served here without ever touching the bulkhead or DB.
-     */
     @Override
     @Cacheable(cacheNames = "result", key = "#rollNo")
     public List<ResultResponse> findByRollNo(String rollNo) {

@@ -1,23 +1,36 @@
 {
-  "name": "account-service",
+  "name": "result-ingestion-service",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "High-throughput CSV result ingestion service publishing to RabbitMQ",
+  "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node src/index.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "start": "node dist/index.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "express": "^5.2.1",
-    "zod": "^4.6.5"
+    "amqp-connection-manager": "^4.1.14",
+    "amqplib": "^0.10.5",
+    "csv-parse": "^5.6.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "pino": "^9.6.0",
+    "pino-http": "^10.4.0",
+    "uuid": "^11.1.0",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
-    "@types/express": "^5.0.6",
+    "@types/amqplib": "^0.10.6",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^22.13.1",
+    "@types/uuid": "^10.0.0",
+    "pino-pretty": "^13.0.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.7.3"
   }
 }

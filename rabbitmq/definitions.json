@@ -1,0 +1,81 @@
+{
+  "rabbit_version": "3.13.0",
+  "users": [
+    {
+      "name": "guest",
+      "password": "guest",
+      "tags": ["administrator"]
+    }
+  ],
+  "vhosts": [
+    {
+      "name": "/"
+    }
+  ],
+  "permissions": [
+    {
+      "user": "guest",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "results.direct",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "results.dlx",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "results.write",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "results.dlx",
+        "x-dead-letter-routing-key": "results.write.dlq"
+      }
+    },
+    {
+      "name": "results.write.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "results.direct",
+      "vhost": "/",
+      "destination": "results.write",
+      "destination_type": "queue",
+      "routing_key": "results.write",
+      "arguments": {}
+    },
+    {
+      "source": "results.dlx",
+      "vhost": "/",
+      "destination": "results.write.dlq",
+      "destination_type": "queue",
+      "routing_key": "results.write.dlq",
+      "arguments": {}
+    }
+  ]
+}

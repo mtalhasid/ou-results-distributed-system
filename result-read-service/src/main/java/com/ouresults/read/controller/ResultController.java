@@ -27,6 +27,11 @@ public class ResultController {
             String rollNo
     ) {
         List<ResultResponse> results = resultReadService.findByRollNo(rollNo);
-        return ApiResponse.success(200, "Results retrieved successfully.", results);
+        return ApiResponse.<List<ResultResponse>>builder()
+                .status("success")
+                .statusCode(200)
+                .message("Results retrieved successfully.")
+                .data(results)
+                .build();
     }
 }
