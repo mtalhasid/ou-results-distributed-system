@@ -25,6 +25,14 @@ if ($ReadInstancesOnly) {
 [array]::Reverse($services)
 foreach ($service in $services) {
     $processId = [int]$service.ProcessId
+    if ($service.Type -eq "Node" -or [string]::IsNullOrWhiteSpace($service.JarPath)) {
+        $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+        if ($null -ne $process) {
+            Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+            Write-Host "Stopped $($service.Name) (PID $processId)."
+        }
+        continue
+    }
     if (-not (Test-ManagedJavaProcess -ProcessId $processId -JarPath $service.JarPath)) {
         $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
         if ($null -ne $process) {
@@ -52,13 +60,13 @@ if ($ReadInstancesOnly) {
 if ($StopContainers) {
     $dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
     if ($null -eq $dockerCommand) {
-        throw "Docker CLI was not found; application processes stopped but Redis containers were left running."
+        throw "Docker CLI was not found; application processes stopped but Docker containers were left running."
     }
-    & $dockerCommand.Source compose stop redis-cache redis-state
+    & $dockerCommand.Source compose stop redis-cache redis-state rabbitmq
     if ($LASTEXITCODE -ne 0) {
-        throw "Application processes stopped, but Docker Compose could not stop the Redis containers."
+        throw "Application processes stopped, but Docker Compose could not stop the containers."
     }
 }
 
 Remove-Item -LiteralPath $statePath -Force
-Write-Host "Stack stopped. Redis containers $(if ($StopContainers) { 'were stopped' } else { 'remain running' }); logs remain in $logsDir."
+Write-Host "Stack stopped. Containers $(if ($StopContainers) { 'were stopped' } else { 'remain running' }); logs remain in $logsDir."

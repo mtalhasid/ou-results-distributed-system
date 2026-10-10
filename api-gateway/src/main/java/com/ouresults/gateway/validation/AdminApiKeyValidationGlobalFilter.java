@@ -24,7 +24,7 @@ public class AdminApiKeyValidationGlobalFilter implements GlobalFilter {
 
     private final GatewayProblemDetailHandler problemDetailHandler;
 
-    @Value("${gateway.admin-api-key:ou-admin-secret-key-2026}")
+    @Value("${gateway.admin-api-key}")
     private String adminApiKey;
 
     @Override

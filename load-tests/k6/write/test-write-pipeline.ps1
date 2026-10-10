@@ -1,25 +1,38 @@
 <#
 .SYNOPSIS
-Verifies the write path end-to-end: CSV ingestion, RabbitMQ batching, shard routing, and idempotent persistence.
+Tests the OU Results Write Pipeline end-to-end (Gateway -> Ingestion -> RabbitMQ -> Persistence -> Shards).
 
 .DESCRIPTION
-Uploads a sample or fresh test CSV through the API Gateway (or directly to Ingestion Service) with the admin key,
-verifies batch creation, and queries Neon PostgreSQL shards to verify results.
-
-.EXAMPLE
-.\scripts\test-write-pipeline.ps1 -FreshExam
-.\scripts\test-write-pipeline.ps1
+Uploads a sample or fresh CSV file through the API Gateway (or Ingestion service directly)
+and verifies that batches are ingested, grouped, and persisted to both Neon database shards.
 #>
 [CmdletBinding()]
 param(
     [string]$GatewayUrl = "http://localhost:8080",
-    [string]$AdminKey = "ou-admin-secret-key-2026",
+    [string]$AdminKey = "",
     [string]$CsvPath = "load-tests/seed/out/upload-sample.csv",
     [switch]$FreshExam
 )
 
 $ErrorActionPreference = "Stop"
-$repoRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = (Get-Item $PSScriptRoot).Parent.Parent.FullName
+
+# Load .env if present
+$envPath = Join-Path $repoRoot ".env"
+if (Test-Path $envPath) {
+    Get-Content $envPath | ForEach-Object {
+        if ($_ -match '^([^=]+)=(.*)$') {
+            [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2])
+        }
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($AdminKey)) {
+    $AdminKey = $env:ADMIN_API_KEY
+}
+if ([string]::IsNullOrWhiteSpace($AdminKey)) {
+    throw "ADMIN_API_KEY is not set. Please supply -AdminKey or configure ADMIN_API_KEY in .env."
+}
 
 Write-Host "==============================================" -ForegroundColor Cyan
 Write-Host " Testing OU Results Write Pipeline End-to-End" -ForegroundColor Cyan
@@ -42,7 +55,7 @@ try {
         Write-Host "Ingestion Service is active on $targetUrl" -ForegroundColor Green
     } catch {
         Write-Host "Neither Gateway nor Ingestion Service is reachable!" -ForegroundColor Red
-        Write-Host "Please start the write stack first by running: .\scripts\start-write-stack.ps1" -ForegroundColor Yellow
+        Write-Host "Please start the stack with write services: .\scripts\start-stack.ps1 -Profile optimized -Write" -ForegroundColor Yellow
         return
     }
 }
@@ -55,7 +68,11 @@ $tempCreated = $false
 if ($FreshExam) {
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
     $testExamId = "EXAM_TEST_$timestamp"
-    $resolvedCsv = Join-Path $repoRoot "scratch\test_upload_$timestamp.csv"
+    $scratchDir = Join-Path $repoRoot "scratch"
+    if (-not (Test-Path $scratchDir)) {
+        New-Item -ItemType Directory -Path $scratchDir -Force | Out-Null
+    }
+    $resolvedCsv = Join-Path $scratchDir "test_upload_$timestamp.csv"
     $tempCreated = $true
 
     Write-Host "`n[2/5] Creating fresh test CSV with exam ID '$testExamId'..." -ForegroundColor Yellow
@@ -101,13 +118,6 @@ Start-Sleep -Seconds 8
 
 # 5. Query Neon Shards
 Write-Host "`n[5/5] Querying Neon PostgreSQL Shards..." -ForegroundColor Yellow
-$envPath = Join-Path $repoRoot ".env"
-if (Test-Path $envPath) {
-    Get-Content $envPath | ForEach-Object {
-        if ($_ -match '^SHARD_1_PRIMARY=(.*)$') { $env:SHARD_1_PRIMARY = $matches[1] }
-        if ($_ -match '^SHARD_2_PRIMARY=(.*)$') { $env:SHARD_2_PRIMARY = $matches[1] }
-    }
-}
 
 if ($FreshExam -and $testExamId) {
     Write-Host "`n--- Verification for fresh exam '$testExamId' ---" -ForegroundColor Cyan

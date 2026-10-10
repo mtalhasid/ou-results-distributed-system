@@ -3,10 +3,15 @@ package com.ouresults.persistence.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.zaxxer.hikari.HikariDataSource;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import javax.sql.DataSource;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -39,6 +44,26 @@ public class ShardRoutingConfiguration {
     @Bean("shard2DataSource")
     HikariDataSource shard2Primary(@Value("${SHARD_2_PRIMARY}") String url) {
         return createDataSource(url);
+    }
+
+    @Bean("shard1TransactionManager")
+    PlatformTransactionManager shard1TransactionManager(@Qualifier("shard1DataSource") DataSource dataSource) {
+        return new DataSourceTransactionManager(dataSource);
+    }
+
+    @Bean("shard2TransactionManager")
+    PlatformTransactionManager shard2TransactionManager(@Qualifier("shard2DataSource") DataSource dataSource) {
+        return new DataSourceTransactionManager(dataSource);
+    }
+
+    @Bean("shard1TransactionTemplate")
+    TransactionTemplate shard1TransactionTemplate(@Qualifier("shard1TransactionManager") PlatformTransactionManager tm) {
+        return new TransactionTemplate(tm);
+    }
+
+    @Bean("shard2TransactionTemplate")
+    TransactionTemplate shard2TransactionTemplate(@Qualifier("shard2TransactionManager") PlatformTransactionManager tm) {
+        return new TransactionTemplate(tm);
     }
 
     private static HikariDataSource createDataSource(String rawUrl) {

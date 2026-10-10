@@ -27,20 +27,20 @@ This project tests what happens to a university result portal when thousands of 
 
 ### The Complete Progression
 
-| Test Stage | Load (req/s) | p95 Latency | Avg Latency | Dropped Requests | Success Rate |
-|---|---:|---:|---:|---:|---:|
-| **Naive Baseline** | 25 req/s | 610 ms | 380 ms | 0.00% | 100.00% |
-| **Naive Baseline** | 50 req/s | 1,020 ms | 470 ms | 0.46% | 99.54% |
-| **Naive Baseline (COLLAPSE)** | **75 req/s** | **6,480 ms** | **3,190 ms** | **19.06%** | **80.94%** |
-| **Optimized Read** | 25 req/s | 890 ms | 340 ms | 0.00% | 100.00% |
-| **Optimized Read** | 50 req/s | 850 ms | 150 ms | 0.00% | 100.00% |
-| **Optimized Read** | 75 req/s | 760 ms | 90 ms | 0.00% | 100.00% |
-| **Optimized + Gateway (Warm)** | 75 req/s | **10 ms** | **30 ms** | **0.00%** | **100.00%** |
-| **Stress Test (Gateway + 1 Inst)** | **150 req/s** | **8.9 ms** | **4.7 ms** | **0.00%** | **100.00%** |
-| **Stress Test (Gateway + 1 Inst)** | **300 req/s** | **8.6 ms** | **20.2 ms** | **0.00%** | **100.00%** |
-| **Stress Test (Gateway + 1 Inst)** | **500 req/s** | **9.2 ms** | **5.5 ms** | **0.00%** | **100.00%** |
+| Test Stage & Mode | Run Label | Cache State | Load (req/s) | p95 Latency | Avg Latency | Dropped Requests | Success Rate |
+|---|---|---|---:|---:|---:|---:|---:|
+| **Naive Baseline (Direct DB)** | 3-Run Median | No Cache | 25 req/s | 610 ms | 380 ms | 0.00% | 100.00% |
+| **Naive Baseline (Direct DB)** | 3-Run Median | No Cache | 50 req/s | 1,020 ms | 470 ms | 0.46% | 99.54% |
+| **Naive Baseline (Direct DB, COLLAPSE)** | 3-Run Median | No Cache | **75 req/s** | **6,480 ms** | **3,190 ms** | **19.06%** | **80.94%** |
+| **Optimized Read (Direct Service)** | Run 1 | Cold Ramp | 25 req/s | 890 ms | 340 ms | 0.00% | 100.00% |
+| **Optimized Read (Direct Service)** | Run 1 | Cold Ramp | 50 req/s | 850 ms | 150 ms | 0.00% | 100.00% |
+| **Optimized Read (Direct Service)** | Run 1 | Cold Ramp | 75 req/s | 760 ms | 90 ms | 0.00% | 100.00% |
+| **Optimized + Gateway** | Run 3 | Warm Steady-State | 75 req/s | **10 ms** | **30 ms** | **0.00%** | **100.00%** |
+| **Stress Test (Gateway + 1 Inst)** | 3-Run Median | Warm Steady-State | **150 req/s** | **8.90 ms** | **4.70 ms** | **0.00%** | **100.00%** |
+| **Stress Test (Gateway + 1 Inst)** | 3-Run Median | Warm Steady-State | **300 req/s** | **368.00 ms** | **56.27 ms** | **0.00%** | **100.00%** |
+| **Stress Test (Gateway + 1 Inst)** | 3-Run Median | Warm Steady-State | **500 req/s** | **9.26 ms** | **5.50 ms** | **0.00%** | **100.00%** |
 
-> **Key takeaway:** The optimized architecture delivered **6.6x the throughput** of the naive baseline while slashing p95 response times from **6,480 ms down to 9 ms** (a 99.8% reduction in latency).
+> **Key takeaway:** The optimized architecture delivered **at least 9x the throughput** of the naive baseline (handling 500 req/s with 100% completion vs the naive architecture's 54.58 req/s saturation ceiling) while slashing steady-state p95 response times from **6,480 ms down to 9.26 ms** (a 99.8% reduction in latency).
 
 ---
 
@@ -127,11 +127,13 @@ Here are the measured millisecond latencies and delivery rates for the optimized
 
 ### B. Direct Head-to-Head Comparison: Naive vs. Optimized
 
-| Load Tier | Naive p95 | Optimized p95 | Naive Dropped | Optimized Dropped | Latency Improvement |
-|:---:|---:|---:|---:|---:|:---:|
-| **25 req/s** | 610 ms | 890 ms *(cold ramp)* | 0.00% | **0.00%** | Comparable (DB handled load) |
-| **50 req/s** | 1,020 ms | **580 ms** | 0.46% (9) | **0.00% (0)** | **43% faster**, eliminated drops |
-| **75 req/s** | **6,480 ms** | **10 ms – 760 ms** | **19.06% (555)** | **0.00% (0)** | **88% to 99.8% faster**, **0 drops** |
+| Load Tier | Target Mode | Run Label | Cache State | Naive (Direct DB) p95 | Optimized p95 | Naive Dropped | Optimized Dropped | Latency Improvement |
+|:---:|---|---|---|---:|---:|---:|---:|:---:|
+| **25 req/s** | Direct to Read Service | Run 1 | Cold Ramp | 610 ms | 890 ms | 0.00% | **0.00%** | Comparable (DB handled load) |
+| **50 req/s** | Direct to Read Service | Run 1 | Cold Ramp | 1,020 ms | 850 ms | 0.46% (9) | **0.00%** | **17% faster**, eliminated drops |
+| **50 req/s** | Through API Gateway | Run 2 | Warm Steady-State | 1,020 ms | **580 ms** | 0.46% (9) | **0.00%** | **43% faster**, eliminated drops |
+| **75 req/s** | Direct to Read Service | Run 1 | Cold Ramp | 6,480 ms | **760 ms** | 19.06% (555) | **0.00%** | **88% faster**, eliminated drops |
+| **75 req/s** | Through API Gateway | Run 3 | Warm Steady-State | 6,480 ms | **10 ms** | 19.06% (555) | **0.00%** | **99.8% faster**, eliminated drops |
 
 ![Median Comparison Summary Table](../load-tests/results/comparison/hot-summary-table.png)
 
@@ -158,8 +160,10 @@ To see where the optimized architecture breaks, we ran extreme arrival rate test
 | Offered Peak | Scheduled Requests | Delivered (Completed) | Dropped | HTTP Errors | Median p95 | Median Avg |
 |:---:|---:|---:|---:|---:|---:|---:|
 | **150 req/s** | 5,775 | **5,775 (100.0%)** | 0 (0.0%) | 0 (0.0%) | **8.90 ms** | 4.70 ms |
-| **300 req/s** | 11,487 | **11,487 (100.0%)** | 0 (0.0%) | 0 (0.0%) | **8.60 ms** | 20.24 ms |
+| **300 req/s** | 11,487 | **11,487 (100.0%)** | 0 (0.0%) | 0 (0.0%) | **368.00 ms** | 56.27 ms |
 | **500 req/s** | 19,112 | **19,112 (100.0%)** | 0 (0.0%) | 0 (0.0%) | **9.26 ms** | 5.50 ms |
+
+*(Note on 300 req/s: True medians across all 3 repetitions reflect initial connection warmup across Runs 1-2 [391.65 ms and 368.00 ms]; fully warm steady-state in Run 3 achieved 8.60 ms p95).*
 
 ---
 
@@ -217,14 +221,14 @@ The gateway inspects incoming roll numbers against college and department patter
 
 ---
 
-### B. Scenario 2: Cold-Burst & Bulkhead Protection
+### B. Scenario 2: Cold-Burst & Overload Protection
 
 This test measures what happens when an unexpected cold burst of traffic arrives for an uncached result before the cache is warm.
 
 * **Traffic:** 100 requests/sec for 10 seconds (1,000 requests total) to an uncached roll number (`160423733001`).
 
 #### Response & Latency Metrics:
-| Total Requests | HTTP 200 (Success) | HTTP 503 (Shed by Bulkhead) | Accepted p95 Latency | Rejected p95 Latency |
+| Total Requests | HTTP 200 (Success) | HTTP 503 (Shed / Fallback) | Accepted p95 Latency | Rejected p95 Latency |
 |:---:|:---:|:---:|:---:|:---:|
 | 1,000 | **947 (94.7%)** | **53 (5.3%)** | **68.07 ms** | **56.15 ms** |
 
@@ -236,7 +240,8 @@ This test measures what happens when an unexpected cold burst of traffic arrives
 | `shard1Database breaker calls` | 10 | 88 | **+78** | Database queries strictly matched cold misses |
 | `shard2Database breaker calls` | 0 | 0 | **0** | Unaffected shard remained completely idle |
 
-> **How it works:** During the initial cold burst, 78 queries reached the database. The Resilience4j bulkhead (cap 25) shed 53 excess concurrent calls with HTTP 503 fast-fails (~56 ms) rather than letting threads pile up and crashing the connection pool. Once the first database read completed, the key was cached and the remaining **922 requests served from Redis in sub-10 ms**.
+> **How it works:** During the initial cold burst, 78 breaker calls reached Shard 1. With database query concurrency capped at 25 reads, exactly 53 calls (78 breaker calls minus 25 permitted database reads) were shed with HTTP 503 fast-fails (~56 ms) via gateway circuit breaker / fallback protection rather than letting threads pile up and crashing the connection pool. Once the initial database read completed and populated Redis, the remaining **922 requests served from Redis in sub-10 ms**.
+> *(Note: Claims about what the bulkhead guarantees under thread pool saturation are removed as only circuit breaker shed counts were measured).*
 
 ---
 
@@ -244,7 +249,11 @@ This test measures what happens when an unexpected cold burst of traffic arrives
 
 The gateway implements a Redis-backed token-bucket rate limiter per client IP:
 * **Default Limits:** 10 requests/sec replenish rate, burst capacity of 30 requests.
-* **Behavior:** When a single client IP exceeds the burst threshold (e.g., 40 rapid concurrent requests), excess requests receive **HTTP 429 (Too Many Requests)**.
+* **Measured Verification:** Under default limits, an automated burst test of 1,001 requests from a single client IP produced:
+  * **116 x HTTP 200** (successful, allowed within burst capacity and replenishment tokens).
+  * **880 x HTTP 429** (Too Many Requests, rejected by Redis token-bucket rate limiter).
+  * **5 x HTTP 503** (transient gateway fallback during initial queue burst).
+  * Rejection p95 latency was **sub-5 ms** directly at the network perimeter without consuming backend read threads or database connections.
 * **Load Test Mode:** The launcher provides `-LoadTest` to raise limits to 1,000/s with burst 2,000 when benchmarking high-concurrency traffic from a single test IP.
 
 ---
@@ -268,7 +277,9 @@ We tested whether running 1, 2, or 3 read instances behind Eureka and the API Ga
 ![Horizontal Scaling Summary](../load-tests/results/comparison/scaling-hot-summary-table.png)
 
 ### Observation:
-At 25-75 req/s, 1, 2, and 3 instances show identical ~20ms latencies once cached. A single read instance is already so fast when backed by Redis that adding extra instances provides redundancy rather than noticeable latency improvements at this traffic tier.
+Across 1, 2, and 3 instances, cold ramp latencies range between 0.62s - 0.89s at 25 req/s and 0.58s - 0.73s at 50 req/s, while warm steady-state latency converges to identical **0.02s (20 ms)** at 75 req/s with 100% delivery across all configurations. Because queries are served from Redis once cached, adding instances does not improve steady-state latency at this traffic tier.
+
+*Note on Redundancy:* Multi-instance high-availability and automatic failover under active node crashes were not empirically tested in this benchmark.
 
 ---
 
@@ -276,29 +287,68 @@ At 25-75 req/s, 1, 2, and 3 instances show identical ~20ms latencies once cached
 
 ### Hardware & Environment
 * **Machine:** Windows 11, 12th Gen Intel Core i5-1235U, 15.7 GB RAM.
-* **Runtimes:** Eclipse Temurin OpenJDK 25.0.4.1 (`-Xms128m -Xmx512m`), k6 v2.2.0.
+* **Runtimes:** Eclipse Temurin OpenJDK 25.0.4.1 (`-Xms128m -Xmx512m`), Node.js v22.14.0, k6 v2.2.0.
 * **Databases:** PostgreSQL on Neon Free Tier (shared compute).
 * **Redis:** Redis 7 on Docker Desktop (local).
 * **RabbitMQ:** RabbitMQ 3.13 Alpine on Docker Desktop (local).
 
 ### Notes & Edge Cases
 * **Result-Day Traffic Pattern:** Benchmarks model result-day behavior where a hot set of roll numbers (~3,000 keys) receives the vast majority of repeated views.
-* **Synthetic Uniform Traffic:** In tests where every single request requested a completely unique, unrepeated roll number (0% cache hit rate), caching provides no benefit and adds a minor Redis lookup overhead.
+* **Synthetic Uniform Traffic:** In benchmark runs where requests followed a uniform distribution across unique uncached roll numbers (0% cache hit rate), throughput was bounded by database query capacity (~54 req/s saturation ceiling per instance), measured prior to subsequent replica connection pool tuning.
 * **Cold Key Stampede:** In the current Spring `@Cacheable` implementation, simultaneous first-time requests for the exact same cold roll number can trigger concurrent database reads until the key is stored in Redis.
 
 ---
 
-## 7. Write-Path Ingestion & Sharding Verification (Phase 4)
+## 7. Write-Path Ingestion, Scale, Durability & Atomicity (Phase 4)
 
-While the read path is benchmarked for public query throughput, the write path is an administrative bulk ingestion pipeline tested for throughput, shard isolation, and non-destructive idempotency.
+The write path is an administrative bulk ingestion pipeline tested through the API Gateway for throughput, shard routing, idempotency, durability under broker crashes, per-shard transaction atomicity, and storage reclamation.
 
-### A. Pipeline Verification Summary
+### A. Empirical Scale Verification (5,000 & 10,000 Rows)
 
-| Test Stage | Description | Offer / Input | Expected Result | Verified Result | Status |
-|---|---|---|---|---|:---:|
-| **Admin Route Auth** | API Gateway security check | `POST /admin/results/upload` with missing / invalid key | `401 Unauthorized` with JSON error envelope | `401 Unauthorized` (zero traffic passed downstream) | [PASS] |
-| **Ingestion Streaming** | Multipart CSV upload & Zod validation | 5,000-row student result file | Streamed parsing without memory spikes | 5,000 rows parsed and validated cleanly | [PASS] |
-| **College Grouping** | Single-shard message routing guarantee | Multi-college CSV | Rows partitioned by `college_code` before chunking | Each RabbitMQ message maps to exactly 1 shard | [PASS] |
-| **Dual-Shard Draft Creation** | Foreign key prerequisite | New exam upload | Exam record inserted in `DRAFT` status on both shards | Exam row created in `DRAFT` status on Shards 1 & 2 | [PASS] |
-| **Idempotent Upsert** | Re-uploading modified marks | Same exam, updated SGPA, pre-published rows | SGPA updated, `published` flag NEVER reset | SGPA updated, `published = true` preserved | [PASS] |
-| **Poison Message & DLQ** | Corrupted / malformed payload | Corrupted JSON payload sent to `results.write` | 3 retries with backoff, rejected without requeue | Moved automatically to `results.write.dlq` | [PASS] |
+Tested through API Gateway on port 8081 with `X-Admin-Api-Key`, using fresh exam IDs (`EXAM_SCALE_5K`, `EXAM_SCALE_10K`) so seeded data was untouched:
+
+| Metric | 5,000-Row Run | 10,000-Row Run |
+|---|---|---|
+| **Gateway Upload Response Time** | **0.47s** | **0.73s** |
+| **RabbitMQ Queue Drain Time** | ~45s (10 batches over WAN) | **90.08s** (20 batches over WAN) |
+| **Shard 1 Persisted Rows (College 1604)** | **2,500 / 2,500** expected | **5,000 / 5,000** expected |
+| **Shard 2 Persisted Rows (College 1608)** | **2,500 / 2,500** expected | **5,000 / 5,000** expected |
+| **Dead-Letter Queue (DLQ) Count** | **0** | **0** |
+| **Ingestion Service Memory Peak** | RSS: 120.84 MB, Heap: 21.52 MB | RSS: 60.14 MB, Heap: 9.89 MB (post-GC) |
+
+### B. Upload Limit & Error Handling
+
+* **Configured Boundary:** 50 MB (`limits: { fileSize: 50 * 1024 * 1024 }` in Multer, `spring.codec.max-in-memory-size=50MB` in Gateway). Approximately 75,000 to 80,000 rows fit within 50 MB at ~660 bytes/row.
+* **Oversized Upload Test:** Uploaded a 52.01 MB CSV through the API Gateway.
+* **Measured Response:** Rejected cleanly with HTTP 400 in the standard JSON envelope:
+  ```json
+  {"status":"error","statusCode":400,"message":"File size exceeds the limit of 50MB","data":null}
+  ```
+* **Known Limitation for 100,000+ Rows:** Node memory storage (`multer.memoryStorage`) buffers whole files in heap. Supporting 100k+ requires disk-backed upload staging (`multer.diskStorage`), piping multipart streams directly into CSV parser and RabbitMQ without full buffering, and raising Gateway Netty memory codec buffer above 100MB.
+
+### C. Idempotency Verification
+
+* Re-uploaded the 5,000-row file (`EXAM_SCALE_5K`).
+* **Result:** Shard 1 remained at 2,500 rows; Shard 2 remained at 2,500 rows. Zero duplicate rows created.
+* PostgreSQL upsert clause `ON CONFLICT (exam_id, roll_no, semester) DO UPDATE` updated records in place and preserved the `published` status flag.
+
+### D. Durability & Broker Restart Under Load
+
+* Stopped `result-persistence-service` worker.
+* Uploaded 1,000 rows (`EXAM_DURABILITY`). Ingestion accepted the upload and queued 2 batches in RabbitMQ (`results.write`, messages: 2, consumers: 0).
+* Hard restarted the RabbitMQ container (`docker restart ou-results-rabbitmq-1`) while messages were queued.
+* Queried RabbitMQ management API: Both messages survived the broker restart (`messages_persistent: 2`).
+* Started `result-persistence-service`: It immediately consumed both batches, persisting 500 rows to Shard 1 and 500 rows to Shard 2 (1,000 total). Queue drained to 0.
+
+### E. Per-Shard Transaction Atomicity (Mid-Batch Failure)
+
+* The persistence service registers dedicated `DataSourceTransactionManager` and `TransactionTemplate` beans per shard (`shard1TransactionManager`, `shard2TransactionManager`).
+* Uploaded a 500-row batch for Shard 1 (`EXAM_ATOMICITY_FAIL`) with a simulated failure at row 250.
+* **Result:** Shard 1 committed strictly **0 rows** (full transactional rollback).
+* The rejected poison batch was routed automatically to `results.write.dlq` (DLQ count increased by 1).
+
+### F. Storage Reclamation & Cleanup
+
+* Shard table sizes during test runs reached **54 MB** on Shard 1 and **54 MB** on Shard 2.
+* Executed deletion of all 17,000 test rows and test exams (`EXAM_SCALE_5K`, `EXAM_SCALE_10K`, `EXAM_DURABILITY`, `EXAM_ATOMICITY_FAIL`) and vacuumed both databases.
+* Post-cleanup storage returned to **47 MB** on Shard 1 and **47 MB** on Shard 2. Seeded data remains completely untouched.

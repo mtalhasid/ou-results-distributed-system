@@ -15,7 +15,8 @@ param(
     [int]$Instances = 1,
     [switch]$LoadTest,
     [ValidateSet("none", "shard1", "shard2")]
-    [string]$FailShard = "none"
+    [string]$FailShard = "none",
+    [switch]$Write
 )
 
 $ErrorActionPreference = "Stop"
@@ -390,7 +391,7 @@ $profileVariables = if ($selectedProfile -eq "optimized") {
 }
 $databaseSettings = @{}
 foreach ($line in [System.IO.File]::ReadAllLines($settingsPath)) {
-    if ($line -match '^\s*(SHARD_[12]_(?:PRIMARY|PRIMARY_REPLICA))\s*=\s*(.*?)\s*$') {
+    if ($line -match '^\s*(SHARD_[12]_(?:PRIMARY|PRIMARY_REPLICA)|ADMIN_API_KEY)\s*=\s*(.*?)\s*$') {
         $value = $matches[2].Trim()
         if ($value.Length -ge 2 -and
             (($value.StartsWith('"') -and $value.EndsWith('"')) -or
@@ -408,20 +409,32 @@ foreach ($name in $profileVariables) {
         throw "$name does not look like a PostgreSQL connection URL."
     }
 }
+if ($Write) {
+    foreach ($primary in @("SHARD_1_PRIMARY", "SHARD_2_PRIMARY")) {
+        if ([string]::IsNullOrWhiteSpace($databaseSettings[$primary])) {
+            throw "Missing $primary in root .env (required for -Write)."
+        }
+    }
+}
 
 New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
 Ensure-Jar -JarPath $eurekaJar -PomPath (Join-Path $repoRoot "service-discovery\pom.xml") -ArtifactName "service-discovery"
 Ensure-Jar -JarPath $readJar -PomPath (Join-Path $repoRoot "result-read-service\pom.xml") -ArtifactName "result-read-service"
 Ensure-Jar -JarPath $gatewayJar -PomPath (Join-Path $repoRoot "api-gateway\pom.xml") -ArtifactName "api-gateway"
+if ($Write) {
+    $persistenceJar = Join-Path $repoRoot "result-persistence-service\target\result-persistence-service-0.0.1-SNAPSHOT.jar"
+    Ensure-Jar -JarPath $persistenceJar -PomPath (Join-Path $repoRoot "result-persistence-service\pom.xml") -ArtifactName "result-persistence-service"
+}
 $javaCommand = Get-Command java -ErrorAction Stop
 $dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
 if ($null -eq $dockerCommand) {
     throw "Docker CLI was not found on PATH."
 }
 
-& $dockerCommand.Source compose up -d redis-cache redis-state
+$composeTargets = if ($Write) { @("redis-cache", "redis-state", "rabbitmq") } else { @("redis-cache", "redis-state") }
+& $dockerCommand.Source compose up -d $composeTargets
 if ($LASTEXITCODE -ne 0) {
-    throw "Could not start redis-cache and redis-state with Docker Compose."
+    throw "Could not start containers with Docker Compose."
 }
 
 $eurekaEnvironment = @{
@@ -506,6 +519,9 @@ $gatewayEnvironment = @{
     REDIS_STATE_PORT = "6380"
 }
 $gatewayEnvironment["READ_SERVICE_URL"] = $effectiveReadServiceUrl
+if ($databaseSettings.ContainsKey("ADMIN_API_KEY")) {
+    $gatewayEnvironment["ADMIN_API_KEY"] = $databaseSettings["ADMIN_API_KEY"]
+}
 if ($LoadTest) {
     $gatewayEnvironment["GATEWAY_RATE_LIMIT_REPLENISH_RATE"] = "1000"
     $gatewayEnvironment["GATEWAY_RATE_LIMIT_BURST_CAPACITY"] = "2000"
@@ -520,6 +536,41 @@ Wait-ForHttpStatus `
     -ExpectedStatus "UP" `
     -ServiceName "API gateway"
 
+if ($Write) {
+    $persistenceEnv = @{
+        SHARD_1_PRIMARY = $databaseSettings["SHARD_1_PRIMARY"]
+        SHARD_2_PRIMARY = $databaseSettings["SHARD_2_PRIMARY"]
+    }
+    Start-StackJar `
+        -Name "result-persistence-service" `
+        -JarPath $persistenceJar `
+        -JvmArguments @("-Xms128m", "-Xmx512m") `
+        -Environment $persistenceEnv | Out-Null
+
+    $ingestionDir = Join-Path $repoRoot "result-ingestion-service"
+    $ingestionEntry = Join-Path $ingestionDir "dist\index.js"
+    if (-not (Test-Path $ingestionEntry)) {
+        Push-Location $ingestionDir
+        & npm run build
+        Pop-Location
+    }
+    $ingestionProc = Start-Process -FilePath "node" `
+        -ArgumentList "dist/index.js" `
+        -WorkingDirectory $ingestionDir `
+        -WindowStyle Hidden `
+        -PassThru
+    $script:stackServices += [PSCustomObject]@{
+        Name = "result-ingestion-service"
+        ProcessId = $ingestionProc.Id
+        Type = "Node"
+        JarPath = ""
+    }
+    Wait-ForHttpStatus `
+        -Uri "http://localhost:3000/health" `
+        -ExpectedStatus "UP" `
+        -ServiceName "Result ingestion service"
+}
+
 $script:stackComplete = $true
 Save-StackState
 Write-Host "Stack started with profile '$selectedProfile' and $Instances read instance(s)."
@@ -530,4 +581,10 @@ Write-Host "Gateway: http://localhost:8080"
 Write-Host "Eureka:  $eurekaBaseUrl"
 foreach ($port in $readPorts) {
     Write-Host "Read:    http://localhost:$port (instance result-read-service:$port)"
+}
+if ($Write) {
+    Write-Host "Write Services:"
+    Write-Host "  Ingestion:   http://localhost:3000"
+    Write-Host "  Persistence: running (AMQP consumer)"
+    Write-Host "  RabbitMQ:    http://localhost:15672 (guest/guest)"
 }

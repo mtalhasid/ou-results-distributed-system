@@ -58,50 +58,19 @@ The automated script manages Eureka, Redis containers, Read instances, and API G
 
 ---
 
-## 4. Running Services Individually (Standalone / Development)
+## 4. Running the Write Path Services
 
-If you prefer running services manually in separate terminals:
+The write path services (RabbitMQ, Result Persistence Service, Result Ingestion Service) are managed through the `-Write` switch in `start-stack.ps1` (off by default):
 
-### Step A: Start Redis
 ```powershell
-docker compose up -d redis-cache redis-state
-```
+# Start full read stack plus write ingestion and persistence pipeline
+.\scripts\start-stack.ps1 -Profile optimized -Write
 
-### Step B: Start Service Discovery (Eureka) - Port 8761
-```powershell
-java -jar .\service-discovery\target\service-discovery-0.0.1-SNAPSHOT.jar
-```
-*Dashboard: `http://localhost:8761`*
+# Test the write pipeline end-to-end
+.\load-tests\scripts\test-write-pipeline.ps1 -FreshExam
 
-### Step C: Start Result Read Service - Port 8082
-```powershell
-# Run Optimized profile (with Redis cache)
-java -jar .\result-read-service\target\result-read-service-0.0.1-SNAPSHOT.jar --spring.profiles.active=optimized --server.port=8082
-
-# Or run Naive profile (no cache)
-java -jar .\result-read-service\target\result-read-service-0.0.1-SNAPSHOT.jar --spring.profiles.active=naive --server.port=8082
-```
-
-### Step D: Start API Gateway - Port 8080
-```powershell
-java -jar .\api-gateway\target\api-gateway-0.0.1-SNAPSHOT.jar
-```
-
-### Step E: Start RabbitMQ - Ports 5672 (AMQP) & 15672 (Management)
-```powershell
-docker compose up -d rabbitmq
-```
-*Management UI: `http://localhost:15672` (guest / guest)*
-
-### Step F: Start Result Persistence Service - Port 8085
-```powershell
-java -jar .\result-persistence-service\target\result-persistence-service-0.0.1-SNAPSHOT.jar
-```
-
-### Step G: Start Result Ingestion Service - Port 3000
-```powershell
-cd result-ingestion-service
-node dist/index.js
+# Stop the full stack including write services
+.\scripts\stop-stack.ps1 -StopContainers
 ```
 
 ---
@@ -164,7 +133,7 @@ curl.exe -i http://localhost:8080/api/results/INVALIDROLL
 ```powershell
 # Upload results CSV through API Gateway with Admin API Key
 curl.exe -i -X POST "http://localhost:8080/admin/results/upload" `
-  -H "X-Admin-Api-Key: ou-admin-secret-key-2026" `
+  -H "X-Admin-Api-Key: <ADMIN_API_KEY>" `
   -F "file=@load-tests/seed/out/upload-sample.csv" `
   -F "title=July-August 2026 Examinations" `
   -F "resultDate=2026-08-15"
