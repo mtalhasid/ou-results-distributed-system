@@ -1,4 +1,4 @@
-# OU Results Platform — High-Concurrency System Design
+# OU Results Platform - High-Concurrency System Design
 
 ## 1. Overview
 
@@ -252,10 +252,10 @@ The `data` list contains one entry for each semester published for that roll num
 
 Possible responses:
 
-- `200 OK`  — Result retrieved successfully. If no published result exists for the roll number, the `data` list is empty.
-- `400 Bad Request`  — The roll number is malformed or its college code is unknown. The gateway rejects the request without contacting the read service.
-- `429 Too Many Requests`  — The request exceeds the permitted rate.
-- `503 Service Unavailable`  — The system cannot safely serve the request, for example because a database circuit breaker is open or the database bulkhead is full. The response carries a `Retry-After` header.
+- `200 OK`  - Result retrieved successfully. If no published result exists for the roll number, the `data` list is empty.
+- `400 Bad Request`  - The roll number is malformed or its college code is unknown. The gateway rejects the request without contacting the read service.
+- `429 Too Many Requests`  - The request exceeds the permitted rate.
+- `503 Service Unavailable`  - The system cannot safely serve the request, for example because a database circuit breaker is open or the database bulkhead is full. The response carries a `Retry-After` header.
 
 **Access model.** Lookup is by roll number alone, as on the current university site, and there is no student login. Roll numbers follow a predictable pattern, so the gateway validates the format and the known college codes and applies per-IP rate limits to reduce scraping. These are mitigations, not privacy-grade access control. A deployment handling private results would need to authenticate the student and verify authorization (see Section 16).
 
