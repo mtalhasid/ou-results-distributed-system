@@ -9,13 +9,13 @@ public class RedisFallbackCacheErrorHandler implements CacheErrorHandler {
 
     @Override
     public void handleCacheGetError(RuntimeException ex, Cache cache, Object key) {
-        log.warn("Cache GET error cache={} key={}: {} — falling through to database.",
+        log.warn("Cache GET error cache={} key={}: {} - falling through to database.",
                 cache.getName(), key, ex.getMessage());
     }
 
     @Override
     public void handleCachePutError(RuntimeException ex, Cache cache, Object key, Object value) {
-        log.warn("Cache PUT error cache={} key={}: {} — result served but not cached.",
+        log.warn("Cache PUT error cache={} key={}: {} - result served but not cached.",
                 cache.getName(), key, ex.getMessage());
     }
 

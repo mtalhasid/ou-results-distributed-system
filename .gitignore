@@ -8,3 +8,4 @@ logs/
 load-tests/seed/out/
 load-tests/results/*/html/
 .github/modernize/java-upgrade/
+scratch/

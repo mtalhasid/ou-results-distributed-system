@@ -1,4 +1,4 @@
-# OU Results — Distributed Read-Path Architecture for Result-Day Traffic
+# OU Results - Distributed Read-Path Architecture for Result-Day Traffic
 
 A high-throughput, resilient distributed system prototype designed to survive extreme result-day traffic surges on university portals.
 
@@ -22,9 +22,9 @@ This project re-architects the portal using a layered, resilient distributed arc
 [Students / Clients]
          │
          ▼
-[API Gateway (Reactive, Port 8080)]
+[API Gateway (Reactive, Port 8081)]
   ├── Correlation ID Tracking
-  ├── Edge Roll Number Validation (Rejects invalid traffic at port 8080)
+  ├── Edge Roll Number Validation (Rejects invalid traffic at port 8081)
   ├── Distributed Rate Limiting (Token-Bucket via Redis State)
   └── Circuit Breaker (Fail-fast fallback when downstream is degraded)
          │
@@ -75,11 +75,11 @@ Tested on a single commodity laptop against remote PostgreSQL cloud databases:
 | **Naive (Direct DB)** | 50 req/s | 1,020 ms | 470 ms | 0.46% (9) | 99.54% |
 | **Naive (COLLAPSE)** | **75 req/s** | **6,480 ms** | **3,190 ms** | **19.06% (555 / 2,912)** | **80.94%** |
 | **Optimized Read** | 75 req/s | **10 ms** | **30 ms** | **0.00% (0)** | **100.00%** |
-| **Optimized Stress Test** | **150 req/s** | **8.9 ms** | **4.7 ms** | **0.00% (0)** | **100.00%** |
-| **Optimized Stress Test** | **300 req/s** | **8.6 ms** | **20.2 ms** | **0.00% (0)** | **100.00%** |
-| **Optimized Stress Test** | **500 req/s** | **9.2 ms** | **5.5 ms** | **0.00% (0)** | **100.00%** |
+| **Optimized Stress Test** | **150 req/s** | **9.1 ms** | **4.7 ms** | **0.00% (0)** | **100.00%** |
+| **Optimized Stress Test (Warm)** | **300 req/s** | **8.6 ms** | **20.2 ms** | **0.00% (0)** | **100.00%** |
+| **Optimized Stress Test** | **500 req/s** | **9.3 ms** | **6.0 ms** | **0.00% (0)** | **100.00%** |
 
-> **Impact:** The optimized distributed read path handled **6.6x the throughput** of the naive baseline while cutting p95 response time from **6.48 seconds down to 9 milliseconds** (a **99.8% latency reduction**).
+> **Impact:** The optimized distributed read path handled **at least 9x the throughput** of the naive baseline (handling 500 req/s with 100% completion vs the naive architecture's 54.58 req/s saturation ceiling) while cutting steady-state p95 response time from **6.48 seconds down to 9.26 milliseconds** (a **99.8% latency reduction**).
 
 ![p95 Latency Comparison](load-tests/results/comparison/hot-p95.png)
 
@@ -107,8 +107,8 @@ cp .env.example .env
 .\scripts\start-stack.ps1 -Profile optimized
 
 # 4. Verify health and query a student result
-curl.exe http://localhost:8080/actuator/health
-curl.exe http://localhost:8080/api/results/160423733001
+curl.exe http://localhost:8081/actuator/health
+curl.exe http://localhost:8081/api/results/160423733001
 
 # 5. Stop the stack
 .\scripts\stop-stack.ps1
@@ -121,18 +121,21 @@ curl.exe http://localhost:8080/api/results/160423733001
 ## 6. Repository Layout & Architecture Status
 
 ```
-├── api-gateway/              # Reactive gateway: validation, rate limiting, circuit breaker
-├── service-discovery/        # Eureka service registry
-├── result-read-service/      # Read tier: naive & optimized profiles, Redis cache-aside
-├── contracts/                # Shard map configuration and shared schemas
-├── scripts/                  # Stack orchestration scripts (build, start, stop)
-├── load-tests/               # k6 test scenarios, seed generators, reports & charts
-└── docs/                     # Documentation: results.md, getting-started.md, spec, phases
+├── api-gateway/                 # Reactive gateway: validation, rate limiting, circuit breaker
+├── service-discovery/           # Eureka service registry
+├── result-read-service/         # Read tier: naive & optimized profiles, Redis cache-aside
+├── result-ingestion-service/    # Write tier: Admin CSV upload, validation, RabbitMQ batch producer
+├── result-persistence-service/  # Write tier: RabbitMQ batch consumer, multi-shard JDBC persistence & publish saga
+├── contracts/                   # Shard map configuration and shared schemas
+├── scripts/                     # Stack orchestration scripts (build, start, stop)
+├── load-tests/                  # k6 test scenarios, seed generators, reports & charts
+└── docs/                        # Documentation: results.md, getting-started.md, spec, phases
 ```
 
 ### Roadmap:
-* ✅ **Phase 1: Skeleton & Baseline** — Naive direct-DB read path, k6 baseline proving 75 req/s collapse.
-* ✅ **Phase 2: Read Protections** — Redis cache-aside, replica routing, rate limiting, validation.
-* ✅ **Phase 3: Scale-Out & Resilience** — Eureka discovery, Resilience4j bulkheads/breakers, 500 req/s stress verification.
-* ⏳ **Phase 4: Write Path & Ingestion** — Admin CSV upload, RabbitMQ asynchronous batching, idempotent JDBC upserts.
-* ⏳ **Phase 5: Publishing Saga** — Multi-shard atomic publish saga, event notifications.
+* ✅ **Phase 1: Skeleton & Baseline** - Naive direct-DB read path, k6 baseline proving 75 req/s collapse.
+* ✅ **Phase 2: Read Protections** - Redis cache-aside, replica routing, rate limiting, validation.
+* ✅ **Phase 3: Scale-Out & Resilience** - Eureka discovery, Resilience4j bulkheads/breakers, 500 req/s stress verification.
+* ✅ **Phase 4: Write Path & Ingestion** - Admin CSV upload, RabbitMQ asynchronous batching, idempotent JDBC upserts across Neon shards.
+* ✅ **Phase 5: Publishing Saga** - Multi-shard publish saga, point of no return, Kafka broker-ack event emission, gentle cache warm-up, gateway isolation.
+* ⏳ **Phase 6: Registration & Email** - Student registration, BCrypt authentication, paced email notifications via Mailpit.

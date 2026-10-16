@@ -46,4 +46,38 @@ export class IngestionController {
       });
     }
   }
+
+  public async publishExam(req: Request, res: Response): Promise<void> {
+    try {
+      const examId = req.params.examId ? String(req.params.examId).trim() : "";
+      if (!examId) {
+        res.status(400).json({
+          status: "error",
+          statusCode: 400,
+          message: "Exam ID must be provided in URL path"
+        });
+        return;
+      }
+
+      await this.ingestionService.publishExam(examId);
+
+      res.status(200).json({
+        status: "success",
+        statusCode: 200,
+        message: `Publication procedure initiated for examination ${examId}`,
+        data: {
+          examId,
+          status: "PUBLISHING"
+        }
+      });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Error initiating publication";
+      logger.error({ err }, "Error publishing exam");
+      res.status(500).json({
+        status: "error",
+        statusCode: 500,
+        message: errorMessage
+      });
+    }
+  }
 }

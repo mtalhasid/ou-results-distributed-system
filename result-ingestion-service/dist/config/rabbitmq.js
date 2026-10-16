@@ -30,6 +30,12 @@ class RabbitMqClient {
             persistent: true
         });
     }
+    async publishCommand(routingKey, message) {
+        await this.channelWrapper.publish(this.exchangeName, routingKey, message, {
+            contentType: "application/json",
+            persistent: true
+        });
+    }
     async close() {
         await this.channelWrapper.close();
         await this.connection.close();

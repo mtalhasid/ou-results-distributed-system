@@ -391,7 +391,7 @@ $profileVariables = if ($selectedProfile -eq "optimized") {
 }
 $databaseSettings = @{}
 foreach ($line in [System.IO.File]::ReadAllLines($settingsPath)) {
-    if ($line -match '^\s*(SHARD_[12]_(?:PRIMARY|PRIMARY_REPLICA)|ADMIN_API_KEY)\s*=\s*(.*?)\s*$') {
+    if ($line -match '^\s*(SHARD_[12]_(?:PRIMARY|PRIMARY_REPLICA)|ADMIN_API_KEY|GATEWAY_PORT)\s*=\s*(.*?)\s*$') {
         $value = $matches[2].Trim()
         if ($value.Length -ge 2 -and
             (($value.StartsWith('"') -and $value.EndsWith('"')) -or
@@ -431,7 +431,7 @@ if ($null -eq $dockerCommand) {
     throw "Docker CLI was not found on PATH."
 }
 
-$composeTargets = if ($Write) { @("redis-cache", "redis-state", "rabbitmq") } else { @("redis-cache", "redis-state") }
+$composeTargets = if ($Write) { @("redis-cache", "redis-state", "rabbitmq", "kafka") } else { @("redis-cache", "redis-state") }
 & $dockerCommand.Source compose up -d $composeTargets
 if ($LASTEXITCODE -ne 0) {
     throw "Could not start containers with Docker Compose."
@@ -509,12 +509,21 @@ if (-not $allReadInstancesUp) {
     throw "Not every read instance reported UP in Eureka within 90 seconds."
 }
 
+$configuredGatewayPort = [Environment]::GetEnvironmentVariable("GATEWAY_PORT", "Process")
+$gatewayPort = if ($databaseSettings.ContainsKey("GATEWAY_PORT")) {
+    $databaseSettings["GATEWAY_PORT"]
+} elseif (-not [string]::IsNullOrWhiteSpace($configuredGatewayPort)) {
+    $configuredGatewayPort
+} else {
+    "8080"
+}
+
 $gatewayEnvironment = @{
     EUREKA_SERVER_URL = $eurekaServerUrl
     EUREKA_LEASE_RENEWAL_INTERVAL_SECONDS = "2"
     EUREKA_LEASE_EXPIRATION_DURATION_SECONDS = "6"
     EUREKA_REGISTRY_FETCH_INTERVAL_SECONDS = "2"
-    GATEWAY_PORT = "8080"
+    GATEWAY_PORT = $gatewayPort
     REDIS_STATE_HOST = "localhost"
     REDIS_STATE_PORT = "6380"
 }
@@ -532,7 +541,7 @@ Start-StackJar `
     -JvmArguments @("-Xms128m", "-Xmx512m") `
     -Environment $gatewayEnvironment | Out-Null
 Wait-ForHttpStatus `
-    -Uri "http://localhost:8080/actuator/health" `
+    -Uri "http://localhost:$gatewayPort/actuator/health" `
     -ExpectedStatus "UP" `
     -ServiceName "API gateway"
 
@@ -541,11 +550,21 @@ if ($Write) {
         SHARD_1_PRIMARY = $databaseSettings["SHARD_1_PRIMARY"]
         SHARD_2_PRIMARY = $databaseSettings["SHARD_2_PRIMARY"]
     }
+    foreach ($varName in @("APP_DEMO_FAILING_PUBLISH_SHARD", "APP_DEMO_CRASH_AFTER_SHARDS_PUBLISHED", "APP_DEMO_FAILING_KAFKA_PUBLISH")) {
+        $envVal = [Environment]::GetEnvironmentVariable($varName, "Process")
+        if (-not [string]::IsNullOrWhiteSpace($envVal)) {
+            $persistenceEnv[$varName] = $envVal
+        }
+    }
     Start-StackJar `
         -Name "result-persistence-service" `
         -JarPath $persistenceJar `
         -JvmArguments @("-Xms128m", "-Xmx512m") `
         -Environment $persistenceEnv | Out-Null
+    Wait-ForHttpStatus `
+        -Uri "http://localhost:8085/actuator/health" `
+        -ExpectedStatus "UP" `
+        -ServiceName "Result persistence service"
 
     $ingestionDir = Join-Path $repoRoot "result-ingestion-service"
     $ingestionEntry = Join-Path $ingestionDir "dist\index.js"
@@ -577,7 +596,7 @@ Write-Host "Stack started with profile '$selectedProfile' and $Instances read in
 if ($LoadTest) {
     Write-Host "Gateway rate limit raised for load testing (1000 requests/second, burst 2000)."
 }
-Write-Host "Gateway: http://localhost:8080"
+Write-Host "Gateway: http://localhost:$gatewayPort"
 Write-Host "Eureka:  $eurekaBaseUrl"
 foreach ($port in $readPorts) {
     Write-Host "Read:    http://localhost:$port (instance result-read-service:$port)"
@@ -587,4 +606,5 @@ if ($Write) {
     Write-Host "  Ingestion:   http://localhost:3000"
     Write-Host "  Persistence: running (AMQP consumer)"
     Write-Host "  RabbitMQ:    http://localhost:15672 (guest/guest)"
+    Write-Host "  Kafka:       localhost:9092"
 }

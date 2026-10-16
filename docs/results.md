@@ -15,6 +15,8 @@
    - [Scenario 3: Token-Bucket Rate Limiting](#c-scenario-3-token-bucket-rate-limiting-abuse-prevention)
 6. [Stage 5: Horizontal Scaling (1 vs. 2 vs. 3 Instances)](#5-horizontal-scaling-1-vs-2-vs-3-instances)
 7. [Environment & Limitations](#6-test-environment--limitations)
+8. [Write-Path Ingestion, Scale, Durability & Atomicity (Phase 4)](#7-write-path-ingestion-scale-durability--atomicity-phase-4)
+9. [Publishing Saga, Cache Warm-Up & Gateway Isolation (Phase 5)](#8-multi-shard-publishing-saga-cache-warm-up--gateway-isolation-phase-5)
 
 ---
 
@@ -36,9 +38,10 @@ This project tests what happens to a university result portal when thousands of 
 | **Optimized Read (Direct Service)** | Run 1 | Cold Ramp | 50 req/s | 850 ms | 150 ms | 0.00% | 100.00% |
 | **Optimized Read (Direct Service)** | Run 1 | Cold Ramp | 75 req/s | 760 ms | 90 ms | 0.00% | 100.00% |
 | **Optimized + Gateway** | Run 3 | Warm Steady-State | 75 req/s | **10 ms** | **30 ms** | **0.00%** | **100.00%** |
-| **Stress Test (Gateway + 1 Inst)** | 3-Run Median | Warm Steady-State | **150 req/s** | **8.90 ms** | **4.70 ms** | **0.00%** | **100.00%** |
-| **Stress Test (Gateway + 1 Inst)** | 3-Run Median | Warm Steady-State | **300 req/s** | **368.00 ms** | **56.27 ms** | **0.00%** | **100.00%** |
-| **Stress Test (Gateway + 1 Inst)** | 3-Run Median | Warm Steady-State | **500 req/s** | **9.26 ms** | **5.50 ms** | **0.00%** | **100.00%** |
+| **Stress Test (Gateway + 1 Inst)** | 3-Run Median | Fully Warm Cache | **150 req/s** | **9.09 ms** | **4.72 ms** | **0.00%** | **100.00%** |
+| **Stress Test (Gateway + 1 Inst)** | Runs 1–2 | Partly Warm Cache | 300 req/s | 368.00 ms | 56.27 ms | 0.10% | 99.90% |
+| **Stress Test (Gateway + 1 Inst)** | Run 3 | Fully Warm Cache | **300 req/s** | **8.60 ms** | **20.24 ms** | **0.00%** | **100.00%** |
+| **Stress Test (Gateway + 1 Inst)** | 3-Run Median | Fully Warm Cache | **500 req/s** | **9.26 ms** | **5.96 ms** | **0.00%** | **100.00%** |
 
 > **Key takeaway:** The optimized architecture delivered **at least 9x the throughput** of the naive baseline (handling 500 req/s with 100% completion vs the naive architecture's 54.58 req/s saturation ceiling) while slashing steady-state p95 response times from **6,480 ms down to 9.26 ms** (a 99.8% reduction in latency).
 
@@ -155,15 +158,19 @@ Here are the measured millisecond latencies and delivery rates for the optimized
 
 To see where the optimized architecture breaks, we ran extreme arrival rate tests through the API Gateway against a single read service instance with a warm cache.
 
-### A. Median Summary Across 3 Repetitions
-
-| Offered Peak | Scheduled Requests | Delivered (Completed) | Dropped | HTTP Errors | Median p95 | Median Avg |
-|:---:|---:|---:|---:|---:|---:|---:|
-| **150 req/s** | 5,775 | **5,775 (100.0%)** | 0 (0.0%) | 0 (0.0%) | **8.90 ms** | 4.70 ms |
-| **300 req/s** | 11,487 | **11,487 (100.0%)** | 0 (0.0%) | 0 (0.0%) | **368.00 ms** | 56.27 ms |
-| **500 req/s** | 19,112 | **19,112 (100.0%)** | 0 (0.0%) | 0 (0.0%) | **9.26 ms** | 5.50 ms |
-
-*(Note on 300 req/s: True medians across all 3 repetitions reflect initial connection warmup across Runs 1-2 [391.65 ms and 368.00 ms]; fully warm steady-state in Run 3 achieved 8.60 ms p95).*
+### A. Stress Test Performance by Cache State
+ 
+| Offered Peak | Test Run / State | Scheduled Requests | Delivered (Completed) | Dropped | HTTP Errors | p95 Latency | Avg Latency |
+|:---:|---|---:|---:|---:|---:|---:|---:|
+| **150 req/s** | 3-Run Median (Fully Warm) | 5,775 | **5,775 (100.0%)** | 0 (0.0%) | 0 (0.0%) | **9.09 ms** | 4.72 ms |
+| **300 req/s** | Run 1 (Partly Warm Cache) | 11,487 | **11,464 (99.8%)** | 23 (0.2%) | 12 (0.1%) | 391.65 ms | 59.60 ms |
+| **300 req/s** | Run 2 (Partly Warm Cache) | 11,487 | **11,487 (100.0%)** | 0 (0.0%) | 0 (0.0%) | 368.00 ms | 56.27 ms |
+| **300 req/s** | **Run 3 (Fully Warm Cache)** | 11,487 | **11,487 (100.0%)** | **0 (0.0%)** | **0 (0.0%)** | **8.60 ms** | **20.24 ms** |
+| **500 req/s** | 3-Run Median (Fully Warm) | 19,112 | **19,112 (100.0%)** | 0 (0.0%) | 1 (0.005%) | **9.26 ms** | 5.96 ms |
+ 
+> **Important Analysis on the 300 req/s Latency Progression:**  
+> The three repeated runs at 300 req/s (p95 values of 391.65 ms, 368.00 ms, and 8.60 ms) differ because the automated test warm-up step only pre-loaded two roll numbers. As a result, the cache for the ~3,000 roll-number hot set filled during the first two runs (showing the latency of a partly warm cache under heavy concurrency) and was fully warm only in the third run.  
+> The document must not present the median of those three runs (368.00 ms) as the typical result: **Run 3 (8.60 ms p95) is the true warm-cache result**, while Runs 1 and 2 demonstrate system behavior with a partly warm cache.
 
 ---
 
@@ -352,3 +359,51 @@ Tested through API Gateway on port 8081 with `X-Admin-Api-Key`, using fresh exam
 * Shard table sizes during test runs reached **54 MB** on Shard 1 and **54 MB** on Shard 2.
 * Executed deletion of all 17,000 test rows and test exams (`EXAM_SCALE_5K`, `EXAM_SCALE_10K`, `EXAM_DURABILITY`, `EXAM_ATOMICITY_FAIL`) and vacuumed both databases.
 * Post-cleanup storage returned to **47 MB** on Shard 1 and **47 MB** on Shard 2. Seeded data remains completely untouched.
+
+---
+
+## 8. Multi-Shard Publishing Saga, Cache Warm-Up & Gateway Isolation (Phase 5)
+
+Phase 5 addresses examination publishing across partitioned database shards, protecting read-side cache consistency, enforcing strict edge-perimeter gateway isolation, and verifying fault tolerance across distributed failure scenarios.
+
+### A. Publishing Saga Architecture & Point of No Return
+
+Publishing transitions an examination and its student results from an unreleased state (`DRAFT` / `published = false`) to publicly accessible (`PUBLISHED` / `published = true`) across multiple PostgreSQL database shards without cross-database distributed locks:
+
+1. **Local Transactional Flips:** Each shard executes an individual transactional update: `UPDATE results SET published = true WHERE exam_id = ? AND published = false`.
+2. **Point of No Return:** Once both shards report their rows flipped, the exam status advances to `SHARDS_PUBLISHED`. At this exact milestone, **the point of no return is permanently crossed: rollbacks are strictly forbidden.**
+3. **Broker-Acknowledged Event Emission:** The persistence service publishes a `results.published` event to Kafka with `acks=all`, synchronously blocking up to 10 seconds for broker cluster acknowledgment.
+4. **Final State & AMQP Acknowledgment:** Upon broker confirmation, both shards are updated to `PUBLISHED`, and the RabbitMQ `results.publish` command is acknowledged.
+
+#### Shard Status Disagreement Rule
+In the event of network disruption or process crash where the two shards disagree on status:
+* If **either** shard reached `SHARDS_PUBLISHED` or `PUBLISHED`, the exam is treated as past the point of no return (`overallStatus = SHARDS_PUBLISHED`). Rollback is disallowed; any redelivery or re-publish command resumes forward by flipping the lagging shard and completing to `PUBLISHED`.
+* If neither shard reached `SHARDS_PUBLISHED`, but one failed, the overall status is `FAILED` and a compensating transaction resets any flipped rows to `published = false`.
+
+### B. Happy Path & Gentle Cache Warm-Up Verification
+
+Tested via `load-tests/test-phase5-publishing.ps1` with a fresh multi-shard examination:
+* **Pre-Publish Verification:** Verified unreleased results return HTTP 200 with 0 records (`[]`).
+* **Saga Progression:** Initiated publish via `POST /admin/exams/{id}/publish`. Polled `GET /admin/exams/{id}/publish-status` through the API Gateway:
+  - Transitioned cleanly: `PUBLISHING` $\rightarrow$ `SHARDS_PUBLISHED` $\rightarrow$ `PUBLISHED` across both Shard 1 and Shard 2.
+* **Gentle Cache Warm-Up:** Kafka consumer in `result-read-service` (`groupId = "read-service-cache-warmup"`) consumed `results.published`. It queried the primary database in 200-row pages with a 100ms pacing delay, warming Redis via `CacheWarmupWriter` (`@CachePut`).
+* **Direct Redis & Cache Metric Proof:**
+  - Directly inspected Redis key `result::<rollNo>` for students on both shards.
+  - Actuator `cache.gets` (result=hit) incremented ($\ge 2$) with 0 database reads, proving requests were served directly from warm cache.
+* **Idempotency:** Re-issuing the publish command for an already published exam returned HTTP 200 with *"Exam is already published on both shards"*; no duplicate updates or redundant events were generated.
+
+### C. Gateway Isolation & Internal Strong Reads
+
+* **Perimeter Defense:** The API Gateway route configuration isolates internal operations. External requests to `GET /internal/results/{rollNo}` were rejected with **HTTP 404 (Not Found)**.
+* **Internal Strong-Read Endpoint:** Administrative and background workers requiring strong read-after-write consistency (bypassing replicas and cache) query `GET /internal/results/{rollNo}?consistency=strong` directly on `result-read-service`, which queries primary Neon shards directly.
+
+### D. Empirical Failure & Recovery Demonstrations
+
+All 3 failure scenarios were demonstrated and verified via `load-tests/test-phase5-failure-demos.ps1`:
+
+| Demo Scenario | Fault Injection | System Behavior & Compensating Action | Verified Result |
+|---|---|---|---|
+| **Demo 1: Shard Failure & Rollback** | `APP_DEMO_FAILING_PUBLISH_SHARD=shard2` | Shard 1 rows flipped; Shard 2 threw simulated exception before point of no return. Saga caught error, executed compensating rollback: flipped Shard 1 rows back to `published = false`, set both shards to `FAILED`. | **PASSED.** Both shards `FAILED`, 0 published rows, student results remained 100% unreleased. |
+| **Demo 2: Crash Past Point of No Return & Redelivery Resume** | `APP_DEMO_CRASH_AFTER_SHARDS_PUBLISHED=true` | Process abruptly killed (`halt(137)`) immediately at `SHARDS_PUBLISHED` before Kafka publish or AMQP ACK. Stack restarted. RabbitMQ redelivered unacknowledged command. Consumer detected `isPastPointOfNoReturn() == true`, resumed forward without rollback or duplicate row updates. | **PASSED.** Both shards transitioned to `PUBLISHED` without duplicate writes. |
+| **Demo 3: Kafka Outage & DLQ Re-Publish Recovery** | `APP_DEMO_FAILING_KAFKA_PUBLISH=true` | Kafka event emission failed past point of no return. AMQP retries exhausted (3 attempts) and routed message to `results.publish.dlq`. Exam remained safely stuck at `SHARDS_PUBLISHED` (never rolled back). Re-sent publish command after simulated broker recovery. | **PASSED.** Re-publishing completed the exam to `PUBLISHED` on both shards with broker-acknowledged event. |
+

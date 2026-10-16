@@ -61,6 +61,28 @@ public class ShardDatabaseReader {
         }
     }
 
+    public List<ResultResponse> readFromPrimary(String shard, String rollNo) {
+        String previous = shardContext.useShard(shard + "Primary");
+        try {
+            return resultRepository.findPublishedByRollNo(rollNo).stream()
+                    .map(ResultResponse::from)
+                    .toList();
+        } finally {
+            shardContext.restore(previous);
+        }
+    }
+
+    public List<com.ouresults.read.entity.ResultEntity> fetchExamPageFromPrimary(
+            String shard, String examId, int page, int pageSize) {
+        String previous = shardContext.useShard(shard + "Primary");
+        try {
+            return resultRepository.findPublishedByExamId(
+                    examId, org.springframework.data.domain.PageRequest.of(page, pageSize));
+        } finally {
+            shardContext.restore(previous);
+        }
+    }
+
     private List<ResultResponse> shard1Fallback(String rollNo, Throwable failure) {
         return handleFallback("shard1", failure);
     }

@@ -100,6 +100,8 @@ Read path first. Each phase ends with a checkpoint you can demo. Do not start th
 
 **Checkpoint:** (1) happy path publishes and results become readable. (2) With the demo switch on, logs show the rollback and status FAILED. (3) Kill the process after SHARDS_PUBLISHED, restart, and the command is redelivered and completes.
 
+**Implementation note (Phase 5 landed):** Multi-shard publishing saga, point of no return (`SHARDS_PUBLISHED`), broker-acknowledged Kafka event emission (`acks=all`), gentle cache warm-up via `@CachePut` in `CacheWarmupWriter`, internal strong read (`/internal/results/{rollNo}?consistency=strong`), gateway route isolation (blocking `/internal/**` with HTTP 404), and all 3 failure demos (rollback, crash-and-resume past point of no return, and Kafka outage recovery) are 100% verified and documented in `docs/results.md`.
+
 ---
 
 ## Phase 6: Registration and email

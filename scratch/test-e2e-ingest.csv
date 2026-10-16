@@ -1,5 +1,0 @@
-exam_id,roll_no,semester,college_code,batch_year,dept_code,name,father_name,gender,course,medium,subjects,result_status,sgpa,cgpa
-EXAM_TEST_E2E_INGEST,160423733001,6,1604,23,733,ALICE SHARD1,PARENT ALICE,FEMALE,B.E. (AICTE),ENGLISH,"[{""code"":""CS601"",""name"":""DISTRIBUTED SYSTEMS"",""credits"":3,""grade"":""A""}]",PASSED,8.99,8.20
-EXAM_TEST_E2E_INGEST,160423733002,6,1604,23,733,BOB SHARD1,PARENT BOB,MALE,B.E. (AICTE),ENGLISH,"[{""code"":""CS601"",""name"":""DISTRIBUTED SYSTEMS"",""credits"":3,""grade"":""B""}]",PASSED,7.50,7.10
-EXAM_TEST_E2E_INGEST,160823733001,6,1608,23,733,CHARLIE SHARD2,PARENT CHARLIE,MALE,B.E. (AICTE),ENGLISH,"[{""code"":""CS601"",""name"":""DISTRIBUTED SYSTEMS"",""credits"":3,""grade"":""A""}]",PASSED,9.00,8.80
-EXAM_TEST_E2E_INGEST,160823733002,6,1608,23,733,DANA SHARD2,PARENT DANA,FEMALE,B.E. (AICTE),ENGLISH,"[{""code"":""CS601"",""name"":""DISTRIBUTED SYSTEMS"",""credits"":3,""grade"":""S""}]",PASSED,9.50,9.30

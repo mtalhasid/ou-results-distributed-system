@@ -95,11 +95,25 @@ public class ShardRoutingConfiguration {
         return createDataSource(url);
     }
 
+    @Bean("shard1PrimaryDataSource")
+    @Profile("optimized")
+    HikariDataSource shard1PrimaryForOptimized(@Value("${SHARD_1_PRIMARY:${SHARD_1_PRIMARY_REPLICA}}") String url) {
+        return createDataSource(url);
+    }
+
+    @Bean("shard2PrimaryDataSource")
+    @Profile("optimized")
+    HikariDataSource shard2PrimaryForOptimized(@Value("${SHARD_2_PRIMARY:${SHARD_2_PRIMARY_REPLICA}}") String url) {
+        return createDataSource(url);
+    }
+
     @Bean
     @Primary
     DataSource dataSource(
             @Qualifier("shard1DataSource") DataSource shard1,
             @Qualifier("shard2DataSource") DataSource shard2,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) @Qualifier("shard1PrimaryDataSource") DataSource shard1Primary,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) @Qualifier("shard2PrimaryDataSource") DataSource shard2Primary,
             ShardContext shardContext
     ) {
         var routing = new AbstractRoutingDataSource() {
@@ -108,7 +122,12 @@ public class ShardRoutingConfiguration {
                 return shardContext.currentShard();
             }
         };
-        routing.setTargetDataSources(Map.of("shard1", shard1, "shard2", shard2));
+        Map<Object, Object> targets = new java.util.HashMap<>();
+        targets.put("shard1", shard1);
+        targets.put("shard2", shard2);
+        targets.put("shard1Primary", shard1Primary != null ? shard1Primary : shard1);
+        targets.put("shard2Primary", shard2Primary != null ? shard2Primary : shard2);
+        routing.setTargetDataSources(targets);
         routing.setLenientFallback(false);
         routing.afterPropertiesSet();
         return routing;

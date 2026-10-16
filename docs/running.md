@@ -12,7 +12,7 @@ This document details the operational commands for launching, configuring, testi
    ```powershell
    cp .env.example .env
    ```
-   Set your Neon PostgreSQL connection URLs (`SHARD_1_PRIMARY`, `SHARD_2_PRIMARY`, etc.) and `ADMIN_API_KEY`.
+   Set your Neon PostgreSQL connection URLs (`SHARD_1_PRIMARY`, `SHARD_2_PRIMARY`, etc.) and `ADMIN_API_KEY`. Optionally set `GATEWAY_PORT` (defaults to 8080) if another local service occupies 8080.
 
 ---
 
@@ -70,25 +70,40 @@ When `-Write` is provided:
 ### Public Read Path
 
 ```powershell
-# Query student result through Gateway (Port 8080)
-curl.exe -i http://localhost:8080/api/results/160423733001
+# Query student result through Gateway (Port 8081 / $env:GATEWAY_PORT)
+curl.exe -i http://localhost:8081/api/results/160423733001
 
 # Test roll number format validation (returns HTTP 400 immediately at perimeter)
-curl.exe -i http://localhost:8080/api/results/INVALIDROLL
+curl.exe -i http://localhost:8081/api/results/INVALIDROLL
 ```
 
 ### Administrative Write Path
 
 ```powershell
 # Run end-to-end write pipeline verification (generates fresh exam and queries shards)
-.\load-tests\scripts\test-write-pipeline.ps1 -FreshExam
+.\load-tests\test-write-pipeline.ps1 -FreshExam
 
-# Upload results CSV through API Gateway with Admin API Key
-curl.exe -i -X POST "http://localhost:8080/admin/results/upload" `
-  -H "X-Admin-Api-Key: <ADMIN_API_KEY>" `
+# Upload results CSV through API Gateway with Admin API Key (from environment variable)
+curl.exe -i -X POST "http://localhost:8081/admin/results/upload" `
+  -H "X-Admin-Api-Key: $env:ADMIN_API_KEY" `
   -F "file=@load-tests/seed/out/upload-sample.csv" `
   -F "title=July-August 2026 Examinations" `
   -F "resultDate=2026-08-15"
+```
+
+### Publishing & Failure Simulation Configuration Flags
+
+For Phase 5 testing and demonstrations, `result-persistence-service` supports three fault-injection configuration properties. **All are OFF (disabled) by default and have zero effect in normal production operations**:
+
+| Environment Variable | Property Key | Default | Description |
+|---|---|---|---|
+| `APP_DEMO_FAILING_PUBLISH_SHARD` | `app.demo.failing-publish-shard` | `none` | Simulates a failure on `shard1` or `shard2` before the point of no return to demonstrate transactional rollback to `FAILED`. |
+| `APP_DEMO_CRASH_AFTER_SHARDS_PUBLISHED` | `app.demo.crash-after-shards-published` | `false` | Triggers an immediate JVM crash (`Runtime.halt(137)`) at `SHARDS_PUBLISHED` before RabbitMQ ACK to verify redelivery and forward recovery. |
+| `APP_DEMO_FAILING_KAFKA_PUBLISH` | `app.demo.failing-kafka-publish` | `false` | Simulates Kafka broker outage past the point of no return to verify that retries exhaust to `results.publish.dlq` without rolling back. |
+
+To run the automated suite verifying all three failure and recovery scenarios:
+```powershell
+.\load-tests\test-phase5-failure-demos.ps1
 ```
 
 ---

@@ -71,4 +71,13 @@ export class IngestionService {
       collegesCount: parseResult.collegeGroups.size
     };
   }
+
+  public async publishExam(examId: string): Promise<void> {
+    const message = {
+      examId,
+      requestedAt: new Date().toISOString()
+    };
+    await this.rabbitMqClient.publishCommand("results.publish", message);
+    logger.info({ examId }, "Published results.publish command to RabbitMQ");
+  }
 }

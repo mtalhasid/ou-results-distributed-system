@@ -58,6 +58,23 @@
       "durable": true,
       "auto_delete": false,
       "arguments": {}
+    },
+    {
+      "name": "results.publish",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "results.dlx",
+        "x-dead-letter-routing-key": "results.publish.dlq"
+      }
+    },
+    {
+      "name": "results.publish.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
     }
   ],
   "bindings": [
@@ -75,6 +92,22 @@
       "destination": "results.write.dlq",
       "destination_type": "queue",
       "routing_key": "results.write.dlq",
+      "arguments": {}
+    },
+    {
+      "source": "results.direct",
+      "vhost": "/",
+      "destination": "results.publish",
+      "destination_type": "queue",
+      "routing_key": "results.publish",
+      "arguments": {}
+    },
+    {
+      "source": "results.dlx",
+      "vhost": "/",
+      "destination": "results.publish.dlq",
+      "destination_type": "queue",
+      "routing_key": "results.publish.dlq",
       "arguments": {}
     }
   ]

@@ -45,6 +45,10 @@ export function createIngestionRouter(ingestionController: IngestionController):
     (req, res) => ingestionController.uploadResults(req, res)
   );
 
+  router.post("/admin/exams/:examId/publish", (req, res) =>
+    ingestionController.publishExam(req, res)
+  );
+
   router.get("/admin/metrics/memory", (req, res) => {
     const mem = process.memoryUsage();
     res.status(200).json({

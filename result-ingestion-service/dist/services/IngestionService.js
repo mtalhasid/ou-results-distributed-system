@@ -52,6 +52,14 @@ class IngestionService {
             collegesCount: parseResult.collegeGroups.size
         };
     }
+    async publishExam(examId) {
+        const message = {
+            examId,
+            requestedAt: new Date().toISOString()
+        };
+        await this.rabbitMqClient.publishCommand("results.publish", message);
+        logger_1.logger.info({ examId }, "Published results.publish command to RabbitMQ");
+    }
 }
 exports.IngestionService = IngestionService;
 //# sourceMappingURL=IngestionService.js.map

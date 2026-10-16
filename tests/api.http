@@ -1,0 +1,224 @@
+### ==============================================================================
+### OU Results Distributed System - HTTP Request Collection
+### Compatible with: VS Code REST Client extension, IntelliJ HTTP Client, & Postman
+### ==============================================================================
+
+@gatewayUrl = http://localhost:8081
+@readServiceUrl = http://localhost:8082
+@ingestionUrl = http://localhost:3000
+@eurekaUrl = http://localhost:8761
+@rabbitMqApi = http://localhost:15672/api
+@adminApiKey = test-admin-key-change-in-production
+
+# Known College Prefixes:
+# Shard 1: 1604, 1605, 1606, 1607
+# Shard 2: 1608, 1609, 1610, 1611, 1612
+@rollShard1 = 160423733001
+@rollShard2 = 160823733001
+@rollNonExistent = 160423733999
+@rollInvalidFormat = 16042373
+@rollUnknownCollege = 999923733001
+
+
+### ==============================================================================
+### 1. HEALTH CHECKS & DISCOVERY
+### ==============================================================================
+
+### Gateway Health & Status
+GET {{gatewayUrl}}/actuator/health
+Accept: application/json
+
+### Eureka Server Apps Registry
+GET {{eurekaUrl}}/eureka/apps
+Accept: application/json
+
+### Direct Read Service Health (Instance 1)
+GET {{readServiceUrl}}/actuator/health
+Accept: application/json
+
+### Direct Ingestion Service Health
+GET {{ingestionUrl}}/health
+Accept: application/json
+
+### Ingestion Service Memory Metrics
+GET {{ingestionUrl}}/admin/metrics/memory
+Accept: application/json
+
+### RabbitMQ Overview (Credentials: guest / guest)
+GET {{rabbitMqApi}}/overview
+Authorization: Basic guest guest
+Accept: application/json
+
+
+### ==============================================================================
+### 2. STUDENT RESULT LOOKUPS (READ PATH VIA GATEWAY)
+### ==============================================================================
+
+### [Read Shard 1] Lookup student result (College 1604 -> Routed to Shard 1)
+GET {{gatewayUrl}}/api/results/{{rollShard1}}
+Accept: application/json
+
+### [Read Shard 2] Lookup student result (College 1608 -> Routed to Shard 2)
+GET {{gatewayUrl}}/api/results/{{rollShard2}}
+Accept: application/json
+
+### [Negative Caching] Lookup non-existent student (Returns empty data, cached in Redis)
+GET {{gatewayUrl}}/api/results/{{rollNonExistent}}
+Accept: application/json
+
+### [Edge Rejection] Malformed roll number (Not 12 digits -> HTTP 400 at Gateway)
+GET {{gatewayUrl}}/api/results/{{rollInvalidFormat}}
+Accept: application/json
+
+### [Edge Rejection] Unknown college code (College 9999 -> HTTP 400 at Gateway)
+GET {{gatewayUrl}}/api/results/{{rollUnknownCollege}}
+Accept: application/json
+
+### [Direct Query] Bypass Gateway -> Query Read Service Directly on Port 8082
+GET {{readServiceUrl}}/api/results/{{rollShard1}}
+Accept: application/json
+
+### [Circuit Breaker Fallback] Direct check of gateway fallback route
+GET {{gatewayUrl}}/fallback/read
+Accept: application/json
+
+
+### ==============================================================================
+### 3. ADMIN WRITE PATH (INGESTION & PERSISTENCE)
+### ==============================================================================
+
+### [Admin Upload] Upload CSV Results Batch via Gateway
+# Note: For VS Code REST Client, place file in scratch/test_upload.csv or adjust path.
+POST {{gatewayUrl}}/admin/results/upload
+X-Admin-Api-Key: {{adminApiKey}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="title"
+
+July-August 2026 Regular Examinations
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="resultDate"
+
+2026-08-15
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="upload-sample.csv"
+Content-Type: text/csv
+
+< ../load-tests/seed/out/upload-sample.csv
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### [Unauthorized Upload] Upload without Admin API Key (Expect HTTP 401)
+POST {{gatewayUrl}}/admin/results/upload
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="title"
+
+Unauthorized Test
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### [Direct Ingestion Upload] Bypass Gateway -> Upload Directly to Ingestion Service (Port 3000)
+POST {{ingestionUrl}}/admin/results/upload
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="title"
+
+Direct Ingestion Upload Test
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="resultDate"
+
+2026-08-15
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="sample.csv"
+Content-Type: text/csv
+
+exam_id,roll_no,semester,college_code,batch_year,dept_code,name,father_name,gender,course,medium,subjects,result_status,sgpa,cgpa
+EXAM_MANUAL_01,160423733901,6,1604,23,733,TEST STUDENT 1,PARENT 1,MALE,B.E. (AICTE),ENGLISH,"[{""code"":""CS601"",""name"":""SYSTEMS"",""credits"":3,""grade"":""A""}]",PASSED,8.50,8.10
+EXAM_MANUAL_01,160823733901,6,1608,23,733,TEST STUDENT 2,PARENT 2,FEMALE,B.E. (AICTE),ENGLISH,"[{""code"":""CS601"",""name"":""SYSTEMS"",""credits"":3,""grade"":""S""}]",PASSED,9.50,9.20
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+
+### ==============================================================================
+### 4. MONITORING, CACHE METRICS & CIRCUIT BREAKERS
+### ==============================================================================
+
+### Read Service Cache Hit Count
+GET {{readServiceUrl}}/actuator/metrics/cache.gets?tag=name:result&tag=result:hit
+Accept: application/json
+
+### Read Service Cache Miss Count
+GET {{readServiceUrl}}/actuator/metrics/cache.gets?tag=name:result&tag=result:miss
+Accept: application/json
+
+### Shard 1 Circuit Breaker Call Counts (DB Queries)
+GET {{readServiceUrl}}/actuator/metrics/resilience4j.circuitbreaker.calls?tag=name:shard1Database
+Accept: application/json
+
+### Shard 2 Circuit Breaker Call Counts (DB Queries)
+GET {{readServiceUrl}}/actuator/metrics/resilience4j.circuitbreaker.calls?tag=name:shard2Database
+Accept: application/json
+
+### Gateway Circuit Breaker State (readService)
+GET {{gatewayUrl}}/actuator/circuitbreakers
+Accept: application/json
+
+### Read Service HikariCP Active Connections
+GET {{readServiceUrl}}/actuator/metrics/hikaricp.connections.active
+Accept: application/json
+
+### Read Service HikariCP Pending Connections
+GET {{readServiceUrl}}/actuator/metrics/hikaricp.connections.pending
+Accept: application/json
+
+
+### ==============================================================================
+### 5. RABBITMQ QUEUE STATUS & MONITORING
+### ==============================================================================
+
+### Check results.write Queue Status (Pending Messages & Consumers)
+GET {{rabbitMqApi}}/queues/%2F/results.write
+Authorization: Basic guest guest
+Accept: application/json
+
+### Check Dead-Letter Queue (DLQ) Status
+GET {{rabbitMqApi}}/queues/%2F/results.write.dlq
+Authorization: Basic guest guest
+Accept: application/json
+
+
+### ==============================================================================
+### 6. EXAM PUBLISHING & REPLICATION (PHASE 5 SAGA)
+### ==============================================================================
+
+### [Publish Exam] Trigger Exam Publishing via Gateway (Ingestion -> RabbitMQ results.publish)
+POST {{gatewayUrl}}/admin/exams/EXAM_MANUAL_01/publish
+X-Admin-Api-Key: {{adminApiKey}}
+Accept: application/json
+
+### [Publish Status] Check Multi-Shard Publish Saga Status via Gateway (Routed to Persistence)
+GET {{gatewayUrl}}/admin/exams/EXAM_MANUAL_01/publish-status
+X-Admin-Api-Key: {{adminApiKey}}
+Accept: application/json
+
+### [Direct Publish Trigger] Bypass Gateway -> Trigger Publishing on Ingestion Service (Port 3000)
+POST {{ingestionUrl}}/admin/exams/EXAM_MANUAL_01/publish
+Accept: application/json
+
+### [Direct Publish Status] Bypass Gateway -> Query Persistence Service Directly (Port 8085)
+GET http://localhost:8085/admin/exams/EXAM_MANUAL_01/publish-status
+Accept: application/json
+
+### [Internal Strong-Read] Read Primary Shard Directly (Bypasses Replica & Cache)
+GET {{readServiceUrl}}/internal/results/{{rollShard1}}?consistency=strong
+Accept: application/json
+
+### [Internal Strong-Read via Shard 2] Read Primary Shard 2 Directly
+GET {{readServiceUrl}}/internal/results/{{rollShard2}}?consistency=strong
+Accept: application/json
+
+### [Security Check] Attempt Internal Strong-Read via Gateway (Must return 404 / Not Routed)
+GET {{gatewayUrl}}/internal/results/{{rollShard1}}?consistency=strong
+Accept: application/json
+

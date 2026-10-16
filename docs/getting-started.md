@@ -107,8 +107,8 @@ docker compose down
 
 ### Health Checks
 ```powershell
-# API Gateway health
-curl.exe http://localhost:8080/actuator/health
+# API Gateway health (Port 8081 / $env:GATEWAY_PORT)
+curl.exe http://localhost:8081/actuator/health
 
 # Read Service health
 curl.exe http://localhost:8082/actuator/health
@@ -119,21 +119,24 @@ curl.exe http://localhost:8761/actuator/health
 
 ### Querying Student Results
 ```powershell
-# Query through the API Gateway (Port 8080)
-curl.exe -i http://localhost:8080/api/results/160423733001
+# Query through the API Gateway (Port 8081)
+curl.exe -i http://localhost:8081/api/results/160423733001
 
 # Query Read Service directly (Port 8082)
 curl.exe -i http://localhost:8082/api/results/160423733001
 
 # Test roll validation (invalid format returns HTTP 400 immediately)
-curl.exe -i http://localhost:8080/api/results/INVALIDROLL
+curl.exe -i http://localhost:8081/api/results/INVALIDROLL
 ```
 
 ### Ingesting Results via Admin Upload (Write Path)
 ```powershell
-# Upload results CSV through API Gateway with Admin API Key
-curl.exe -i -X POST "http://localhost:8080/admin/results/upload" `
-  -H "X-Admin-Api-Key: <ADMIN_API_KEY>" `
+# Run end-to-end write pipeline verification (fresh exam across both shards)
+.\load-tests\test-write-pipeline.ps1 -FreshExam
+
+# Upload results CSV through API Gateway with Admin API Key (from environment variable)
+curl.exe -i -X POST "http://localhost:8081/admin/results/upload" `
+  -H "X-Admin-Api-Key: $env:ADMIN_API_KEY" `
   -F "file=@load-tests/seed/out/upload-sample.csv" `
   -F "title=July-August 2026 Examinations" `
   -F "resultDate=2026-08-15"
@@ -151,23 +154,23 @@ Make sure the stack is running with `-LoadTest` enabled before running heavy tes
 ### Standard Arrival-Rate Test (Realistic Result Day)
 ```powershell
 # Run 75 req/s arrival test (Hot mode: repeated lookups)
-.\load-tests\k6\run-arrival.ps1 -Profile optimized -Peaks 75 -Mode hot -BaseUrl http://localhost:8080
+.\tests\read\run-arrival.ps1 -Profile optimized -Peaks 75 -Mode hot -BaseUrl http://localhost:8081
 
 # Run high-rate stress test (150, 300, 500 req/s)
-.\load-tests\k6\run-arrival.ps1 -Profile optimized -Peaks 150,300,500 -Runs 3 -Mode hot -BaseUrl http://localhost:8080 -MaxVus 2000
+.\tests\read\run-arrival.ps1 -Profile optimized -Peaks 150,300,500 -Runs 3 -Mode hot -BaseUrl http://localhost:8081 -MaxVus 2000
 ```
 
 ### Gateway Protection Test
 Tests that invalid roll numbers are blocked (HTTP 400) and cold bursts are safely shed:
 ```powershell
 docker compose exec -T redis-cache redis-cli FLUSHDB
-.\load-tests\k6\run-gateway-protection.ps1
+.\tests\read\run-gateway-protection.ps1
 ```
 
 ### Horizontal Scaling Test (1 vs 2 vs 3 Instances)
 Automatically runs tests with 1, 2, and 3 instances and generates comparison charts:
 ```powershell
-.\load-tests\k6\run-scaling.ps1
+.\tests\read\run-scaling.ps1
 ```
 
 ---

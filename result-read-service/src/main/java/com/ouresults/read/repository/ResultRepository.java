@@ -19,4 +19,16 @@ public interface ResultRepository extends JpaRepository<ResultEntity, ResultId> 
             order by result.id.semester desc
             """)
     List<ResultEntity> findPublishedByRollNo(@Param("rollNo") String rollNo);
+
+    @Query("""
+            select result
+            from ResultEntity result
+            join fetch result.exam
+            where result.id.examId = :examId and result.published = true
+            order by result.id.rollNo asc, result.id.semester desc
+            """)
+    List<ResultEntity> findPublishedByExamId(
+            @Param("examId") String examId,
+            org.springframework.data.domain.Pageable pageable
+    );
 }
