@@ -1,3 +1,4 @@
+// Proves virtual user concurrency behavior and latency degradation under fixed VU loads.
 import http from "k6/http";
 import { check, sleep } from "k6";
 

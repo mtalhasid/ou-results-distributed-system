@@ -1,4 +1,5 @@
-﻿<#
+# Proves horizontal read-tier scaling throughput and latency gains across 1, 2, and 3 Eureka-registered instances.
+<#
 .SYNOPSIS
 Runs scaling arrival-rate tests with 1, 2, and 3 optimized read instances.
 
@@ -47,13 +48,13 @@ foreach ($count in $instanceCounts) {
     if ($LASTEXITCODE -ne 0) { throw "Could not flush redis-cache." }
 
     Write-Host "Running arrival tests: peaks=$($Peaks -join ','), mode=$Mode, runs=$Runs"
-    & (Join-Path $PSScriptRoot "run-arrival.ps1") `
+    & (Join-Path $PSScriptRoot "run-spike-test.ps1") `
         -Profile optimized `
         -Peaks $Peaks `
         -Runs $Runs `
         -Label $label `
         -Mode $Mode `
-        -BaseUrl "http://localhost:8080" `
+        -BaseUrl "http://localhost:8081" `
         -Timeout $Timeout
 
     Write-Host ""

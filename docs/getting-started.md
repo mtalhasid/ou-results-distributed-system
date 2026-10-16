@@ -67,7 +67,7 @@ The write path services (RabbitMQ, Result Persistence Service, Result Ingestion 
 .\scripts\start-stack.ps1 -Profile optimized -Write
 
 # Test the write pipeline end-to-end
-.\load-tests\scripts\test-write-pipeline.ps1 -FreshExam
+.\tests\write\upload-smoke.ps1 -FreshExam
 
 # Stop the full stack including write services
 .\scripts\stop-stack.ps1 -StopContainers
@@ -132,7 +132,7 @@ curl.exe -i http://localhost:8081/api/results/INVALIDROLL
 ### Ingesting Results via Admin Upload (Write Path)
 ```powershell
 # Run end-to-end write pipeline verification (fresh exam across both shards)
-.\load-tests\test-write-pipeline.ps1 -FreshExam
+.\tests\write\upload-smoke.ps1 -FreshExam
 
 # Upload results CSV through API Gateway with Admin API Key (from environment variable)
 curl.exe -i -X POST "http://localhost:8081/admin/results/upload" `
@@ -154,10 +154,10 @@ Make sure the stack is running with `-LoadTest` enabled before running heavy tes
 ### Standard Arrival-Rate Test (Realistic Result Day)
 ```powershell
 # Run 75 req/s arrival test (Hot mode: repeated lookups)
-.\tests\read\run-arrival.ps1 -Profile optimized -Peaks 75 -Mode hot -BaseUrl http://localhost:8081
+.\tests\read\run-spike-test.ps1 -Profile optimized -Peaks 75 -Mode hot -BaseUrl "http://localhost:8081"
 
 # Run high-rate stress test (150, 300, 500 req/s)
-.\tests\read\run-arrival.ps1 -Profile optimized -Peaks 150,300,500 -Runs 3 -Mode hot -BaseUrl http://localhost:8081 -MaxVus 2000
+.\tests\read\run-spike-test.ps1 -Profile optimized -Peaks 150,300,500 -Runs 3 -Mode hot -BaseUrl "http://localhost:8081" -MaxVus 2000
 ```
 
 ### Gateway Protection Test

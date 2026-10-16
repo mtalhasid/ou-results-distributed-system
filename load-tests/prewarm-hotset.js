@@ -1,4 +1,5 @@
 import http from "k6/http";
+import exec from "k6/execution";
 
 const manifest = JSON.parse(open("./seed/out/seed-manifest.json"));
 const groups = manifest.groups;
@@ -53,7 +54,7 @@ export const options = {
 };
 
 export default function () {
-  const rollNo = hotSet[__ITER];
+  const rollNo = hotSet[exec.scenario.iterationInTest];
   if (rollNo) {
     http.get(`${baseUrl}/api/results/${rollNo}`, { timeout: "15s" });
   }

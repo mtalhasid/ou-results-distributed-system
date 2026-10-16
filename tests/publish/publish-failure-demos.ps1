@@ -1,3 +1,4 @@
+# Proves saga rollback before point of no return, crash recovery via message redelivery, and DLQ handling during Kafka outages.
 <#
 .SYNOPSIS
 Verifies Phase 5 Failure & Recovery Demos:
@@ -14,7 +15,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 
 # Load .env
 $envPath = Join-Path $repoRoot ".env"

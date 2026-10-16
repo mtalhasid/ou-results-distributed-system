@@ -1,3 +1,4 @@
+# Proves multi-shard exam publishing saga, Kafka event emission, gentle cache warm-up, and strong read consistency.
 <#
 .SYNOPSIS
 Tests Phase 5 Exam Publishing Saga, Kafka Event, Cache Warm-Up, and Internal Strong-Read.
@@ -21,7 +22,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 
 # Load .env
 $envPath = Join-Path $repoRoot ".env"

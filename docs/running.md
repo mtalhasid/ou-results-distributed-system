@@ -81,7 +81,10 @@ curl.exe -i http://localhost:8081/api/results/INVALIDROLL
 
 ```powershell
 # Run end-to-end write pipeline verification (generates fresh exam and queries shards)
-.\load-tests\test-write-pipeline.ps1 -FreshExam
+.\tests\write\upload-smoke.ps1 -FreshExam
+
+# Run full write resilience suite (5k/10k scaling, size limits, idempotency, atomicity/DLQ)
+.\tests\write\upload-resilience.ps1
 
 # Upload results CSV through API Gateway with Admin API Key (from environment variable)
 curl.exe -i -X POST "http://localhost:8081/admin/results/upload" `
@@ -89,6 +92,16 @@ curl.exe -i -X POST "http://localhost:8081/admin/results/upload" `
   -F "file=@load-tests/seed/out/upload-sample.csv" `
   -F "title=July-August 2026 Examinations" `
   -F "resultDate=2026-08-15"
+```
+
+### Read Path Load Testing & Phase 5 Regression Verification
+
+```powershell
+# Standard arrival spike test (75 req/s):
+.\tests\read\run-spike-test.ps1 -Profile optimized -Peaks 75 -Mode hot -BaseUrl "http://localhost:8081"
+
+# Phase 5 warm-cache read load test (300 req/s regression verification):
+.\tests\read\run-spike-test.ps1 -Profile optimized -Peaks 300 -Mode hot -BaseUrl "http://localhost:8081" -MaxVus 300
 ```
 
 ### Publishing & Failure Simulation Configuration Flags
@@ -101,9 +114,14 @@ For Phase 5 testing and demonstrations, `result-persistence-service` supports th
 | `APP_DEMO_CRASH_AFTER_SHARDS_PUBLISHED` | `app.demo.crash-after-shards-published` | `false` | Triggers an immediate JVM crash (`Runtime.halt(137)`) at `SHARDS_PUBLISHED` before RabbitMQ ACK to verify redelivery and forward recovery. |
 | `APP_DEMO_FAILING_KAFKA_PUBLISH` | `app.demo.failing-kafka-publish` | `false` | Simulates Kafka broker outage past the point of no return to verify that retries exhaust to `results.publish.dlq` without rolling back. |
 
+To verify the happy-path publishing saga (multi-shard status, Kafka event, cache warm-up, strong-read):
+```powershell
+.\tests\publish\publish-happy-path.ps1
+```
+
 To run the automated suite verifying all three failure and recovery scenarios:
 ```powershell
-.\load-tests\test-phase5-failure-demos.ps1
+.\tests\publish\publish-failure-demos.ps1
 ```
 
 ---

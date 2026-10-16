@@ -1,4 +1,5 @@
-﻿param(
+# Proves read-path throughput and p95 latency under ramping student arrival spikes (comparing naive vs optimized profiles).
+param(
     [Parameter(Mandatory = $true)]
     [ValidateSet("naive", "optimized")]
     [string]$Profile,
@@ -24,7 +25,7 @@ $Profile = $Profile.ToLowerInvariant()
 $Mode = $Mode.ToLowerInvariant()
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $manifestPath = Join-Path $repoRoot "load-tests\seed\out\seed-manifest.json"
-$scriptPath = Join-Path $PSScriptRoot "read-arrival.js"
+$scriptPath = Join-Path $PSScriptRoot "spike-test.js"
 $resultsDir = Join-Path $repoRoot "load-tests\results\$Profile"
 $rawDir = Join-Path $resultsDir "raw"
 $htmlDir = Join-Path $resultsDir "html"

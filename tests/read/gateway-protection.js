@@ -1,3 +1,4 @@
+// Proves edge roll number validation and token-bucket rate limiting without backend impact.
 import http from "k6/http";
 import { check } from "k6";
 import { Counter, Trend } from "k6/metrics";

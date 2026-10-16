@@ -1,3 +1,4 @@
+# Proves API Gateway edge format validation, token-bucket rate limiting, and circuit breaker protection under cold bursts.
 <#
 .SYNOPSIS
 Runs gateway validation and rate-limit proof scenarios.

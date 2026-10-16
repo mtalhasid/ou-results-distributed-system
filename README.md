@@ -128,7 +128,8 @@ curl.exe http://localhost:8081/api/results/160423733001
 ├── result-persistence-service/  # Write tier: RabbitMQ batch consumer, multi-shard JDBC persistence & publish saga
 ├── contracts/                   # Shard map configuration and shared schemas
 ├── scripts/                     # Stack orchestration scripts (build, start, stop)
-├── load-tests/                  # k6 test scenarios, seed generators, reports & charts
+├── tests/                       # Automated test suites (read speed tests, write & publish verification)
+├── load-tests/                  # k6 benchmark artifacts, raw JSON reports, charts, and seed data
 └── docs/                        # Documentation: results.md, getting-started.md, spec, phases
 ```
 

@@ -1,4 +1,5 @@
-﻿param(
+# Proves direct-database connection pool saturation and throughput ceilings under fixed concurrent users (25, 50, 100 VUs).
+param(
     [Parameter(Mandatory = $true)]
     [ValidateSet("naive", "optimized")]
     [string]$Profile,
@@ -12,7 +13,7 @@ $ErrorActionPreference = "Stop"
 $Profile = $Profile.ToLowerInvariant()
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $manifestPath = Join-Path $repoRoot "load-tests\seed\out\seed-manifest.json"
-$scriptPath = Join-Path $PSScriptRoot "read-baseline.js"
+$scriptPath = Join-Path $PSScriptRoot "user-ramp.js"
 $resultsDir = Join-Path $repoRoot "load-tests\results\$Profile"
 $rawDir = Join-Path $resultsDir "raw"
 $htmlDir = Join-Path $resultsDir "html"

@@ -1,3 +1,4 @@
+# Proves asynchronous CSV ingestion and multi-shard database persistence end-to-end with a minimal batch.
 <#
 .SYNOPSIS
 Tests the OU Results Write Pipeline end-to-end (Gateway -> Ingestion -> RabbitMQ -> Persistence -> Shards).

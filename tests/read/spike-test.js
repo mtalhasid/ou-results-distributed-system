@@ -1,3 +1,4 @@
+// Proves open-model arrival-rate performance and saturation limits under simulated result-day student spikes.
 import http from "k6/http";
 import { check } from "k6";
 
