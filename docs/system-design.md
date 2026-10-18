@@ -1,5 +1,27 @@
 # OU Results Platform - High-Concurrency System Design
 
+## Table of Contents
+
+- [1. Overview](#1-overview)
+- [2. Requirements](#2-requirements)
+- [3. Capacity Estimation](#3-capacity-estimation)
+- [4. High-Level Architecture](#4-high-level-architecture)
+- [5. API Design](#5-api-design)
+- [6. Database Design](#6-database-design)
+- [7. Caching Strategy](#7-caching-strategy)
+- [8. Asynchronous Processing](#8-asynchronous-processing)
+- [9. Load Balancing and Horizontal Scaling](#9-load-balancing-and-horizontal-scaling)
+- [10. Reliability and Fault Tolerance](#10-reliability-and-fault-tolerance)
+- [11. Result Publishing Workflow](#11-result-publishing-workflow)
+- [12. Consistency and Concurrency](#12-consistency-and-concurrency)
+- [13. Observability and Monitoring](#13-observability-and-monitoring)
+- [14. Load Testing and Performance Evaluation](#14-load-testing-and-performance-evaluation)
+- [15. Trade-offs and Design Decisions](#15-trade-offs-and-design-decisions)
+- [16. Limitations and Future Improvements](#16-limitations-and-future-improvements)
+- [Conclusion](#conclusion)
+
+---
+
 ## 1. Overview
 
 The OU Results Platform is a system design project exploring how to serve examination results to a large number of students during sudden traffic spikes while allowing administrators to publish new results reliably.

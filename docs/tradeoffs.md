@@ -1,4 +1,4 @@
-## Tradeoffs: What this project is and is not
+# Tradeoffs: What this project is and is not
 
 This is not a replacement for OU's current result portal. It is a prototype of a general architecture for a specific class of traffic shape: high read spikes, controlled write windows, and outbound work that must respect external limits (like email quota).
 
@@ -6,9 +6,17 @@ The OU result page is the concrete example. The same shape appears in ticket boo
 
 This project is built for that shape. It is not the cheapest way to serve OU, and it does not try to be. It is the version that handles the shape at scale, with mutation, and with external constraints.
 
+## Table of Contents
+
+- [1. Cost](#1-cost)
+- [2. Complexity](#2-complexity)
+- [What this project demonstrates](#what-this-project-demonstrates)
+- [What this project actually solves](#what-this-project-actually-solves)
+- [Why Kafka when there is already a message queue?](#why-kafka-when-there-is-already-a-message-queue)
+
 ---
 
-### 1. Cost
+## 1. Cost
 
 Idle cost is the first thing to understand. Most services (read, ingestion, persistence, notification, gateway) sit idle ~99% of the year. Results are published roughly twice a year. The system is not a 24/7 workload.
 
@@ -31,7 +39,7 @@ The honest conclusion: the system is not cost-optimized - it is shape-optimized.
 
 ---
 
-### 2. Complexity
+## 2. Complexity
 
 Yes, this is overengineered for OU's actual load. Own it.
 

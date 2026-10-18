@@ -3,6 +3,7 @@ package com.ouresults.read.service;
 import com.ouresults.read.config.AppProperties;
 import com.ouresults.read.config.ShardRoutingConfiguration.ShardContext;
 import com.ouresults.read.dto.ResultResponse;
+import com.ouresults.read.entity.ResultEntity;
 import com.ouresults.read.exception.DatabaseTechnicalFailureException;
 import com.ouresults.read.exception.ShardUnavailableException;
 import com.ouresults.read.repository.ResultRepository;
@@ -15,6 +16,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.QueryTimeoutException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
 import java.sql.SQLException;
@@ -72,12 +74,12 @@ public class ShardDatabaseReader {
         }
     }
 
-    public List<com.ouresults.read.entity.ResultEntity> fetchExamPageFromPrimary(
+    public List<ResultEntity> fetchExamPageFromPrimary(
             String shard, String examId, int page, int pageSize) {
         String previous = shardContext.useShard(shard + "Primary");
         try {
             return resultRepository.findPublishedByExamId(
-                    examId, org.springframework.data.domain.PageRequest.of(page, pageSize));
+                    examId, PageRequest.of(page, pageSize));
         } finally {
             shardContext.restore(previous);
         }

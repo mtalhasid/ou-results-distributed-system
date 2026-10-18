@@ -2,6 +2,8 @@ package com.ouresults.read.repository;
 
 import com.ouresults.read.entity.ResultEntity;
 import com.ouresults.read.entity.ResultId;
+
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -29,6 +31,6 @@ public interface ResultRepository extends JpaRepository<ResultEntity, ResultId> 
             """)
     List<ResultEntity> findPublishedByExamId(
             @Param("examId") String examId,
-            org.springframework.data.domain.Pageable pageable
+            Pageable pageable
     );
 }

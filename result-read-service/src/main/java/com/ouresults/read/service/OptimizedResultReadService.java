@@ -16,7 +16,6 @@ public class OptimizedResultReadService implements ResultReadService {
     private final ShardMap shardMap;
     private final ShardDatabaseReader shardDatabaseReader;
 
-    @Override
     @Cacheable(cacheNames = "result", key = "#rollNo")
     public List<ResultResponse> findByRollNo(String rollNo) {
         String shard = shardMap.shardFor(rollNo.substring(0, 4));

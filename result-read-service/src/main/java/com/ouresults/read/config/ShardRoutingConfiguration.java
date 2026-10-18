@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.ouresults.read.exception.UnknownCollegeException;
 import com.zaxxer.hikari.HikariDataSource;
+
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -112,8 +114,8 @@ public class ShardRoutingConfiguration {
     DataSource dataSource(
             @Qualifier("shard1DataSource") DataSource shard1,
             @Qualifier("shard2DataSource") DataSource shard2,
-            @org.springframework.beans.factory.annotation.Autowired(required = false) @Qualifier("shard1PrimaryDataSource") DataSource shard1Primary,
-            @org.springframework.beans.factory.annotation.Autowired(required = false) @Qualifier("shard2PrimaryDataSource") DataSource shard2Primary,
+            @Autowired (required = false) @Qualifier("shard1PrimaryDataSource") DataSource shard1Primary,
+            @Autowired (required = false) @Qualifier("shard2PrimaryDataSource") DataSource shard2Primary,
             ShardContext shardContext
     ) {
         var routing = new AbstractRoutingDataSource() {
