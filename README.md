@@ -179,3 +179,7 @@ curl.exe -i -X POST "http://localhost:8081/admin/exams/EXAM_2026_01/publish" `
 ├── load-tests/                  # k6 benchmark artifacts, raw JSON reports, charts, and seed data
 └── docs/                        # Detailed guides: results.md, system-design.md, getting-started.md, tradeoffs.md
 ```
+
+---
+
+License: MIT

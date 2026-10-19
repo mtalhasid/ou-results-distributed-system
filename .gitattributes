@@ -6,5 +6,13 @@ mvnw text eol=lf
 load-tests/** linguist-detectable=false
 *.py linguist-detectable=false
 
+# Exclude PowerShell orchestration scripts, test suites, and automation from language statistics
+scripts/** linguist-detectable=false
+tests/** linguist-detectable=false
+*.ps1 linguist-detectable=false
+*.psm1 linguist-detectable=false
+*.psd1 linguist-detectable=false
+
 # Exclude compiled TypeScript build output from language statistics
 result-ingestion-service/dist/** linguist-vendored
+
