@@ -1,0 +1,10 @@
+# Ensure consistent line endings
+mvnw text eol=lf
+*.cmd text eol=crlf
+
+# Exclude Python benchmark reports, chart generators, and seed scripts from language statistics
+load-tests/** linguist-detectable=false
+*.py linguist-detectable=false
+
+# Exclude compiled TypeScript build output from language statistics
+result-ingestion-service/dist/** linguist-vendored
