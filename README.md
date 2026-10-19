@@ -39,7 +39,7 @@ This project re-architects the portal using a layered, event-driven distributed 
 
 #### C. Publishing Saga: Multi-Shard Atomicity Without 2PC
 1. **Local Transactional Flips:** Each shard independently executes `UPDATE results SET published = true WHERE exam_id = ? AND published = false`.
-2. **Point of No Return (`SHARDS_PUBLISHED`):** Once both shards successfully flip rows, the exam crosses the point of no return—rollbacks are strictly prohibited to prevent data inconsistency.
+2. **Point of No Return (`SHARDS_PUBLISHED`):** Once both shards successfully flip rows, the exam crosses the point of no return-rollbacks are strictly prohibited to prevent data inconsistency.
 3. **Broker-Acknowledged Event Emission:** Emits a `results.published` event to **Apache Kafka** with `acks=all`, synchronously verified before acknowledging the AMQP command.
 4. **Gentle Cache Warm-Up:** The read service listens to the Kafka event log and warms Redis in 200-row pages with a 100ms pacing delay, preventing cache stampedes.
 

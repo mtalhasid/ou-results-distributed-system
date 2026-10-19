@@ -12,7 +12,7 @@
 - [Workflow 2: Result Upload Pipeline (Write Path)](#workflow-2-result-upload-pipeline-write-path)
   - [Scenario 1: End-to-End File Upload and Sharded Persistence](#scenario-1-end-to-end-file-upload-and-sharded-persistence)
   - [Scenario 2: Failure Handling and Fault Tolerance](#scenario-2-failure-handling-and-fault-tolerance)
-  - [Scenario 3: Dead-Letter Queue (DLQ) — Poison Pill Defense](#scenario-3-dead-letter-queue-dlq--poison-pill-defense)
+  - [Scenario 3: Dead-Letter Queue (DLQ) - Poison Pill Defense](#scenario-3-dead-letter-queue-dlq--poison-pill-defense)
   - [Upload Path Summary Table](#upload-path-summary-table)
 - [Workflow 3: Result Publishing Saga (Release Path)](#workflow-3-result-publishing-saga-release-path)
   - [Scenario 1: Multi-Shard Publication & Cache Warming (Happy Path)](#scenario-1-multi-shard-publication--cache-warming-happy-path)
@@ -370,7 +370,7 @@ When saving 10,000+ student rows in batches of 500, JPA creates severe memory ov
 
 With `JdbcTemplate`, we bypass Hibernate completely and run high-speed batch inserts directly against PostgreSQL using native `INSERT ... ON CONFLICT DO UPDATE` upsert statements.
 
-This separation—using JPA for the query model and raw JDBC for high-volume write commands—is an application of **CQRS (Command Query Responsibility Segregation)**.
+This separation - using JPA for the query model and raw JDBC for high-volume write commands - is an application of **CQRS (Command Query Responsibility Segregation)**.
 
 <br><br>
 
@@ -410,7 +410,7 @@ Even if Docker or the host machine abruptly restarts under heavy load, RabbitMQ 
 #### Step 3: Persistence Service Failure (Worker Crash & Transaction Rollback)
 Now, suppose the Result Persistence Service pulls Batch 3 from RabbitMQ, starts inserting records, but crashes halfway through (e.g., at row 250 out of 500) due to an out-of-memory error or server reboot. The system prevents data corruption through two synchronized mechanisms:
 
-1. **Database Transaction Rollback:** Database updates are wrapped inside a Spring `TransactionTemplate`. Because the worker crashed before reaching the commit step, PostgreSQL automatically discards the 250 half-written rows. The database remains clean—no half-committed batches or orphaned student records exist. *(Note: Batches 1 and 2 are unaffected because their transactions were already successfully committed).*
+1. **Database Transaction Rollback:** Database updates are wrapped inside a Spring `TransactionTemplate`. Because the worker crashed before reaching the commit step, PostgreSQL automatically discards the 250 half-written rows. The database remains clean - no half-committed batches or orphaned student records exist. *(Note: Batches 1 and 2 are unaffected because their transactions were already successfully committed).*
 2. **Automatic AMQP Re-Queueing:** The persistence worker operates on an acknowledgment-based model: it confirms a message to RabbitMQ **only after** PostgreSQL commits the transaction. While the worker is processing Batch 3, RabbitMQ marks the message as **Unacknowledged**, keeping the original copy safe on disk.
    When the worker crashes, its TCP socket connection to RabbitMQ abruptly closes. RabbitMQ immediately detects connection loss, recognizes that Batch 3 was never acknowledged, and flips its status from **Unacknowledged** back to **Ready**.
 
@@ -419,18 +419,18 @@ When the persistence service boots back up, RabbitMQ redelivers Batch 3. The wor
 #### Step 4: The Poison Pill & The Infinite Retry Problem
 While automatic re-delivery guarantees that temporary crashes don't lose data, it introduces a dangerous new failure mode: **what happens if a batch fails not because of a hardware crash, but because the data itself is invalid?**
 
-Suppose a batch contains a "poison pill"—for example, row 250 violates a database foreign key constraint or contains invalid data that the parser missed:
+Suppose a batch contains a "poison pill" - for example, row 250 violates a database foreign key constraint or contains invalid data that the parser missed:
 1. The persistence worker attempts to process the batch → the database throws an exception → the transaction rolls back.
 2. Because the batch was not acknowledged, RabbitMQ marks it as `Ready` and immediately redelivers it.
 3. The persistence worker picks it up again, hits the same invalid row, throws the same error, and rolls back again.
 
-Without an intervention mechanism, this batch will cycle between RabbitMQ and the worker indefinitely—consuming CPU, flooding error logs, and permanently blocking subsequent healthy batches from being processed.
+Without an intervention mechanism, this batch will cycle between RabbitMQ and the worker indefinitely-consuming CPU, flooding error logs, and permanently blocking subsequent healthy batches from being processed.
 
 <br><br>
 
 ---
 
-## Scenario 3: Dead-Letter Queue (DLQ) — Poison Pill Defense
+## Scenario 3: Dead-Letter Queue (DLQ) - Poison Pill Defense
 
 To handle poison pills without crashing workers or freezing the queue, we configure a dedicated **Dead-Letter Exchange** (`results.dlx`) and **Dead-Letter Queue** (`results.write.dlq`) in RabbitMQ.
 
@@ -496,7 +496,7 @@ An administrator wants to publish examination `EXAM_1`. Currently:
 - Shard 2 (College 1608) has 5,000 students saved with `published = false`.
 - The exam is in `DRAFT` status. No student can see their results.
 
-The goal is to safely flip all 10,000 students to `published = true` across both databases, announce it to Kafka, and pre-warm Redis—with zero distributed locking (no two-phase commit).
+The goal is to safely flip all 10,000 students to `published = true` across both databases, announce it to Kafka, and pre-warm Redis-with zero distributed locking (no two-phase commit).
 
 ## Scenario 1: Multi-Shard Publication & Cache Warming (Happy Path)
 
@@ -582,7 +582,7 @@ Inside `ExamPublishService.java`, the coordinated saga state machine executes:
    shard1Jdbc.update("UPDATE exams SET publish_status = 'SHARDS_PUBLISHED' WHERE exam_id = ?", examId);
    shard2Jdbc.update("UPDATE exams SET publish_status = 'SHARDS_PUBLISHED' WHERE exam_id = ?", examId);
    ```
-   > **What does "Point of No Return" mean?** At this exact milestone, results are legally live in both databases. **Rollback is now strictly forbidden.** No matter what failures occur next, the system will never roll back to draft—it will only heal forward.
+   > **What does "Point of No Return" mean?** At this exact milestone, results are legally live in both databases. **Rollback is now strictly forbidden.** No matter what failures occur next, the system will never roll back to draft-it will only heal forward.
 
 #### Step 5: Announce to Kafka & Mark Final `PUBLISHED`
 Inside `ExamPublishService.java`, the persistence worker posts the announcement to **Apache Kafka**:
@@ -716,7 +716,7 @@ flowchart LR
 ```
 
 ### Why We Never Roll Back Once Live
-Because results are already committed and queryable in both databases, rolling back would cause live student grades to suddenly disappear from their screens. In distributed systems, **once data is live, you never roll back—you heal forward.**
+Because results are already committed and queryable in both databases, rolling back would cause live student grades to suddenly disappear from their screens. In distributed systems, **once data is live, you never roll back-you heal forward.**
 
 ### How the System Recovers
 
