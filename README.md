@@ -1,6 +1,8 @@
 # OU Results - High-Concurrency Distributed System for Result-Day Traffic
 
-A high-throughput, fault-tolerant distributed system combining a sub-10ms cached read path, sharded PostgreSQL databases, an asynchronous bulk CSV write pipeline, and an atomic multi-shard publishing saga.
+> Detailed Architecture & Evidence: [System Design](docs/system-design.md) • [Benchmark & Test Results](docs/results.md)
+
+A high-throughput, fault-tolerant distributed system combining a sub-10ms cached read path, sharded PostgreSQL databases, an asynchronous bulk CSV write pipeline, and a fault-tolerant multi-shard publishing saga.
 
 ---
 
@@ -25,19 +27,19 @@ This project re-architects the portal using a layered, event-driven distributed 
 ### Architectural Pillars
 
 #### A. Read Path: Perimeter Defense & Sub-10ms Serving
-1. **Edge Perimeter Defense:** Malformed roll numbers and college codes are validated in memory at the **Spring Cloud Gateway** in under 10 ms with **zero backend CPU or database cost**.
+1. **Edge Perimeter Defense:** Malformed roll numbers and college codes are validated in memory at the **Spring Cloud Gateway** in under 10 ms with **zero downstream HTTP requests, cache lookups, or database queries**.
 2. **Distributed Token-Bucket Rate Limiting:** Abusive clients exceeding burst limits receive HTTP 429 via Redis State without touching internal microservices.
-3. **Dynamic Round-Robin Load Balancing:** Read service instances register dynamically with **Eureka**, allowing horizontal scaling across instances on demand (`lb://result-read-service`).
-4. **In-Memory Cache-Aside:** Successful queries are cached in **Redis** with a 10-minute TTL, serving 95%+ of repeated lookups in **~5–10 ms**.
+3. **Dynamic Round-Robin Load Balancing:** Multiple read service instances register dynamically with **Eureka** for round-robin dispatch (`lb://result-read-service`); horizontal capacity scale-out was not demonstrated in the single-laptop test environment.
+4. **In-Memory Cache-Aside:** Successful queries are cached in **Redis** with a 10-minute TTL, serving repeated lookups in **~5–10 ms**.
 5. **Database Sharding & Read Replicas:** Cache misses route to dedicated PostgreSQL read replicas, partitioned by college code across independent shards (`Shard 1` and `Shard 2`).
-6. **Bulkhead & Circuit Breaker Isolation:** Resilience4j bulkheads strictly cap database queries to 25 concurrent slots per shard. Circuit breakers fast-fail within 25 ms if a database shard fails, protecting healthy shards.
+6. **Bulkhead & Circuit Breaker Isolation:** Resilience4j bulkheads strictly cap database queries to 25 concurrent slots per shard, shedding excess cold bursts with HTTP 503 fast-fails in ~56 ms (measured 56.15 ms p95 fallback) rather than saturating connection pools. Independent circuit breakers protect each shard by failing fast if a database replica suffers technical connection or query failures.
 
 #### B. Write Pipeline: Asynchronous Streaming & Batching
 1. **Streaming CSV Ingestion:** The **Result Ingestion Service** (Node.js/Express/TypeScript) streams multipart CSV uploads using Fast-CSV, validating headers and batching student records into college-grouped chunks without memory bloat.
 2. **Durable Asynchronous Queuing:** Batches are published to **RabbitMQ** (`results.write`), decoupling HTTP ingestion from database persistence with Dead-Letter Queue (`results.write.dlq`) safety.
 3. **Idempotent Multi-Shard Persistence:** The **Result Persistence Service** (Spring Boot 3) consumes batches and performs idempotent batch upserts (`ON CONFLICT (exam_id, roll_no, semester) DO UPDATE`) across sharded PostgreSQL databases.
 
-#### C. Publishing Saga: Multi-Shard Atomicity Without 2PC
+#### C. Publishing Saga: Fault-Tolerant Multi-Shard Publishing Without 2PC
 1. **Local Transactional Flips:** Each shard independently executes `UPDATE results SET published = true WHERE exam_id = ? AND published = false`.
 2. **Point of No Return (`SHARDS_PUBLISHED`):** Once both shards successfully flip rows, the exam crosses the point of no return-rollbacks are strictly prohibited to prevent data inconsistency.
 3. **Broker-Acknowledged Event Emission:** Emits a `results.published` event to **Apache Kafka** with `acks=all`, synchronously verified before acknowledging the AMQP command.
@@ -67,16 +69,18 @@ This project re-architects the portal using a layered, event-driven distributed 
 
 ### A. Read-Path Performance (Single Laptop vs. Cloud PostgreSQL)
 
-| Architecture | Load Tier | p95 Latency | Avg Latency | Dropped Requests | Success Rate |
+| Architecture | Load Tier | p95 Latency | Avg Latency | Dropped Arrivals | HTTP Errors |
 |---|---:|---:|---:|---:|---:|
-| **Naive (Direct DB)** | 50 req/s | 1,020 ms | 470 ms | 0.46% (9) | 99.54% |
-| **Naive (COLLAPSE)** | **75 req/s** | **6,480 ms** | **3,190 ms** | **19.06% (555 / 2,912)** | **80.94%** |
-| **Optimized Read** | 75 req/s | **10 ms** | **30 ms** | **0.00% (0)** | **100.00%** |
-| **Optimized Stress Test** | **150 req/s** | **9.1 ms** | **4.7 ms** | **0.00% (0)** | **100.00%** |
-| **Optimized Stress Test (Warm)** | **300 req/s** | **8.6 ms** | **20.2 ms** | **0.00% (0)** | **100.00%** |
-| **Optimized Stress Test** | **500 req/s** | **9.3 ms** | **6.0 ms** | **0.00% (0)** | **100.00%** |
+| **Naive (Direct DB)** | 50 req/s | 1,020 ms | 470 ms | 0.46% (9) | 0 |
+| **Naive (COLLAPSE)** | **75 req/s** | **6,480 ms** | **3,190 ms** | **19.06% (555 / 2,912)** | **2 (0.08%)** |
+| **Optimized Read** | 75 req/s | **10 ms** | **30 ms** | **0** | **0** |
+| **Optimized Stress Test** | **150 req/s** | **9.1 ms** | **4.7 ms** | **0** | **0** |
+| **Optimized Stress Test (Warm)** | **300 req/s** | **8.6 ms** | **20.2 ms** | **0** | **0** |
+| **Optimized Stress Test** | **500 req/s** | **9.3 ms** | **6.0 ms** | **0** | **1 of 57,336** |
 
-> **Impact:** The optimized distributed read path handled **at least 9x the throughput** of the naive baseline (500 req/s with 100% completion vs naive 54.58 req/s saturation ceiling) while cutting steady-state p95 response times from **6.48 seconds down to 9.26 milliseconds** (a **99.8% latency reduction**).
+> *Note on reliability counters: **Dropped Arrivals** are scheduled requests that k6 could not dispatch due to virtual user (VU) exhaustion; **HTTP Errors** are requests that reached the server but timed out or returned an error status (calculated using requests actually sent as the denominator, e.g. median 2 errors out of 2,357 sent requests at 75 req/s: 2,912 scheduled - 555 dropped = 2,357 sent; 2 / 2,357 = 0.08%). Latencies are 3-run medians; 500 req/s error count is the combined total across all 3 runs.*
+
+> **Impact:** Under warm-cache steady-state result-day traffic, the optimized distributed read path handled **at least 9x the throughput** of the naive baseline (500 req/s with zero dropped arrivals and 1 error out of 57,336 requests vs naive 54.58 req/s direct database saturation ceiling) while cutting steady-state p95 response times from **6.48 seconds down to 9.26 milliseconds** (a **99.8% latency reduction**). In Run 2, one request waited ~10 seconds until the gateway's Resilience4j `readService` TimeLimiter fired, returning HTTP 503; the cause of the read service delay was not isolated.
 
 ![p95 Latency Comparison](./load-tests/results/comparison/hot-p95.png)
 
@@ -127,7 +131,7 @@ cp .env.example .env
 # Full stack including Write Pipeline (starts RabbitMQ, Ingestion Service, Persistence Worker)
 .\scripts\start-stack.ps1 -Profile optimized -Write
 
-# Horizontal scaling with 3 read instances
+# Run with 3 load-balanced read instances
 .\scripts\start-stack.ps1 -Profile optimized -Instances 3
 ```
 

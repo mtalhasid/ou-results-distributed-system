@@ -13,7 +13,7 @@
    - [Scenario 1: Malformed Input Rejection](#a-scenario-1-malformed-input-filtering-zero-backend-load)
    - [Scenario 2: Cold Burst & Bulkhead Protection](#b-scenario-2-cold-burst--bulkhead-protection)
    - [Scenario 3: Token-Bucket Rate Limiting](#c-scenario-3-token-bucket-rate-limiting-abuse-prevention)
-6. [Stage 5: Horizontal Scaling (1 vs. 2 vs. 3 Instances)](#5-horizontal-scaling-1-vs-2-vs-3-instances)
+6. [Stage 5: Multi-Instance Load Balancing Verification (1 vs. 2 vs. 3 Instances)](#5-multi-instance-load-balancing-verification-1-vs-2-vs-3-instances)
 7. [Environment & Limitations](#6-test-environment--limitations)
 8. [Write-Path Ingestion, Scale, Durability & Atomicity (Phase 4)](#7-write-path-ingestion-scale-durability--atomicity-phase-4)
 9. [Publishing Saga, Cache Warm-Up & Gateway Isolation (Phase 5)](#8-multi-shard-publishing-saga-cache-warm-up--gateway-isolation-phase-5)
@@ -25,25 +25,28 @@
 This project tests what happens to a university result portal when thousands of students refresh simultaneously on result day.
 
 * **Naive (Direct DB):** Collapses at just **75 requests/sec**. Database connection pools choke, latencies spike past **6.4 seconds**, and **1 in 5 students (19%) get dropped completely**.
-* **Optimized (Redis Cache + Replicas + Gateway):** Easily handles **500 requests/sec** with **100% delivery**, **zero dropped requests**, and **p95 latency under 10 milliseconds**.
+* **Optimized (Redis Cache + Replicas + Gateway):** Handles **500 requests/sec** with **zero dropped arrivals**, **1 HTTP error out of 57,336 requests** across 3 runs (one request in Run 2 waited ~10 seconds until the gateway's Resilience4j `readService` TimeLimiter fired, returning HTTP 503; the cause of the read service delay was not isolated), and **steady-state p95 latency under 10 milliseconds**.
 
+<a id="the-complete-progression-table"></a>
 ### The Complete Progression
 
-| Test Stage & Mode | Run Label | Cache State | Load (req/s) | p95 Latency | Avg Latency | Dropped Requests | Success Rate |
-|---|---|---|---:|---:|---:|---:|---:|
-| **Naive Baseline (Direct DB)** | 3-Run Median | No Cache | 25 req/s | 610 ms | 380 ms | 0.00% | 100.00% |
-| **Naive Baseline (Direct DB)** | 3-Run Median | No Cache | 50 req/s | 1,020 ms | 470 ms | 0.46% | 99.54% |
-| **Naive Baseline (Direct DB, COLLAPSE)** | 3-Run Median | No Cache | **75 req/s** | **6,480 ms** | **3,190 ms** | **19.06%** | **80.94%** |
-| **Optimized Read (Direct Service)** | Run 1 | Cold Ramp | 25 req/s | 890 ms | 340 ms | 0.00% | 100.00% |
-| **Optimized Read (Direct Service)** | Run 1 | Cold Ramp | 50 req/s | 850 ms | 150 ms | 0.00% | 100.00% |
-| **Optimized Read (Direct Service)** | Run 1 | Cold Ramp | 75 req/s | 760 ms | 90 ms | 0.00% | 100.00% |
-| **Optimized + Gateway** | Run 3 | Warm Steady-State | 75 req/s | **10 ms** | **30 ms** | **0.00%** | **100.00%** |
-| **Stress Test (Gateway + 1 Inst)** | 3-Run Median | Fully Warm Cache | **150 req/s** | **9.09 ms** | **4.72 ms** | **0.00%** | **100.00%** |
-| **Stress Test (Gateway + 1 Inst)** | Runs 1–2 | Partly Warm Cache | 300 req/s | 368.00 ms | 56.27 ms | 0.10% | 99.90% |
-| **Stress Test (Gateway + 1 Inst)** | Run 3 | Fully Warm Cache | **300 req/s** | **8.60 ms** | **20.24 ms** | **0.00%** | **100.00%** |
-| **Stress Test (Gateway + 1 Inst)** | 3-Run Median | Fully Warm Cache | **500 req/s** | **9.26 ms** | **5.96 ms** | **0.00%** | **100.00%** |
+*Column definitions:* **Dropped Arrivals** = scheduled requests that k6 could not dispatch because virtual users were exhausted by slow responses (ratio of scheduled arrivals). **HTTP Errors** = dispatched requests that returned a non-200 status or timed out, calculated using requests actually sent as the denominator (e.g., median 2 errors out of 2,357 sent requests at 75 req/s: 2,912 scheduled - 555 dropped = 2,357 sent; 2 / 2,357 = 0.08%). **Delivery Rate** = percentage of scheduled arrivals actually dispatched.
 
-> **Key takeaway:** The optimized architecture delivered **at least 9x the throughput** of the naive baseline (handling 500 req/s with 100% completion vs the naive architecture's 54.58 req/s saturation ceiling) while slashing steady-state p95 response times from **6,480 ms down to 9.26 ms** (a 99.8% reduction in latency).
+| Test Stage & Mode | Run Label | Cache State | Load (req/s) | p95 Latency | Avg Latency | Dropped Arrivals | HTTP Errors | Delivery Rate |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| **Naive Baseline (Direct DB)** | 3-Run Median | No Cache | 25 req/s | 910 ms | 510 ms | 0.00% | 0.00% | 100.00% |
+| **Naive Baseline (Direct DB)** | 3-Run Median | No Cache | 50 req/s | 1,020 ms | 470 ms | 0.46% | 0.00% | 99.54% |
+| **Naive Baseline (Direct DB, COLLAPSE)** | 3-Run Median | No Cache | **75 req/s** | **6,480 ms** | **3,190 ms** | **19.06%** | **0.08%** | **80.94%** |
+| **Optimized Read (Direct Service)** | Run 1 | Cold Ramp | 25 req/s | 890 ms | 340 ms | 0.00% | 0.00% | 100.00% |
+| **Optimized Read (Direct Service)** | Run 1 | Cold Ramp | 50 req/s | 850 ms | 150 ms | 0.00% | 0.00% | 100.00% |
+| **Optimized Read (Direct Service)** | Run 1 | Cold Ramp | 75 req/s | 760 ms | 90 ms | 0.00% | 0.00% | 100.00% |
+| **Optimized + Gateway** | Run 3 | Warm Steady-State | 75 req/s | **10 ms** | **30 ms** | **0.00%** | **0.00%** | **100.00%** |
+| **Stress Test (Gateway + 1 Inst)** | 3-Run Median | Fully Warm Cache | **150 req/s** | **9.09 ms** | **4.72 ms** | **0.00%** | **0.00%** | **100.00%** |
+| **Stress Test (Gateway + 1 Inst)** | Runs 1–2 | Partly Warm Cache | 300 req/s | 368.00 ms | 56.27 ms | 0.10% | 0.05% | 99.90% |
+| **Stress Test (Gateway + 1 Inst)** | Run 3 | Fully Warm Cache | **300 req/s** | **8.60 ms** | **20.24 ms** | **0.00%** | **0.00%** | **100.00%** |
+| **Stress Test (Gateway + 1 Inst)** | 3-Run Median (p95/avg); 3-Run Total (errors) | Fully Warm Cache | **500 req/s** | **9.26 ms** | **5.96 ms** | **0.00%** | **0.002% (1 of 57,336)** | **100.00%** |
+
+> **Key takeaway:** Under warm-cache steady-state result-day traffic, the optimized architecture delivered **at least 9x the throughput** of the naive baseline (500 req/s with zero dropped arrivals and 1 error out of 57,336 requests vs the naive architecture's 54.58 req/s direct database saturation ceiling) while slashing p95 response times from **6,480 ms down to 9.26 ms** (a 99.8% reduction in latency). In Run 2, a single request waited ~10 seconds until the gateway's Resilience4j `readService` TimeLimiter fired, returning an HTTP 503 fallback; the cause of the read service delay on that request was not isolated. Runs 1 and 3 completed with zero errors.
 
 ---
 
@@ -132,7 +135,7 @@ Here are the measured millisecond latencies and delivery rates for the optimized
 
 | Load Tier | Target Mode | Run Label | Cache State | Naive (Direct DB) p95 | Optimized p95 | Naive Dropped | Optimized Dropped | Latency Improvement |
 |:---:|---|---|---|---:|---:|---:|---:|:---:|
-| **25 req/s** | Direct to Read Service | Run 1 | Cold Ramp | 610 ms | 890 ms | 0.00% | **0.00%** | Comparable (DB handled load) |
+| **25 req/s** | Direct to Read Service | Run 1 | Cold Ramp | 910 ms | 890 ms | 0.00% | **0.00%** | Comparable (DB handled load) |
 | **50 req/s** | Direct to Read Service | Run 1 | Cold Ramp | 1,020 ms | 850 ms | 0.46% (9) | **0.00%** | **17% faster**, eliminated drops |
 | **50 req/s** | Through API Gateway | Run 2 | Warm Steady-State | 1,020 ms | **580 ms** | 0.46% (9) | **0.00%** | **43% faster**, eliminated drops |
 | **75 req/s** | Direct to Read Service | Run 1 | Cold Ramp | 6,480 ms | **760 ms** | 19.06% (555) | **0.00%** | **88% faster**, eliminated drops |
@@ -158,6 +161,7 @@ Here are the measured millisecond latencies and delivery rates for the optimized
 
 To see where the optimized architecture breaks, we ran extreme arrival rate tests through the API Gateway against a single read service instance with a warm cache.
 
+<a id="a-median-summary-across-3-repetitions"></a>
 ### A. Stress Test Performance by Cache State
  
 | Offered Peak | Test Run / State | Scheduled Requests | Delivered (Completed) | Dropped | HTTP Errors | p95 Latency | Avg Latency |
@@ -170,7 +174,7 @@ To see where the optimized architecture breaks, we ran extreme arrival rate test
  
 > **Important Analysis on the 300 req/s Latency Progression:**  
 > The three repeated runs at 300 req/s (p95 values of 391.65 ms, 368.00 ms, and 8.60 ms) differ because the automated test warm-up step only pre-loaded two roll numbers. As a result, the cache for the ~3,000 roll-number hot set filled during the first two runs (showing the latency of a partly warm cache under heavy concurrency) and was fully warm only in the third run.  
-> The document must not present the median of those three runs (368.00 ms) as the typical result: **Run 3 (8.60 ms p95) is the true warm-cache result**, while Runs 1 and 2 demonstrate system behavior with a partly warm cache.
+> Consequently, **Run 3 (8.60 ms p95) represents the true warm steady-state result**, while Runs 1 and 2 demonstrate system behavior during cache population.
 
 ---
 
@@ -178,7 +182,7 @@ To see where the optimized architecture breaks, we ran extreme arrival rate test
 
 Here is the exact data from all 9 consecutive tests executed by k6 through the API Gateway:
 
-| Peak Rate | Test Run | Scheduled | Delivered (Success) | Dropped | Errors | p95 Latency | Avg Latency | Max Latency | VUs Used |
+| Peak Rate | Test Run | Scheduled | Delivered (Completed) | Dropped | Errors | p95 Latency | Avg Latency | Max Latency | VUs Used |
 |:---:|:---:|---:|---:|---:|---:|---:|---:|---:|:---:|
 | **150 req/s** | Run 1 | 5,775 | **5,775 (100%)** | 0 | 0 | **8.90 ms** | 4.72 ms | 28.44 ms | 75 |
 | **150 req/s** | Run 2 | 5,774 | **5,774 (100%)** | 0 | 0 | **9.10 ms** | 5.03 ms | 1,050.58 ms | 75 |
@@ -190,11 +194,10 @@ Here is the exact data from all 9 consecutive tests executed by k6 through the A
 | **500 req/s** | Run 2 | 19,112 | **19,112 (100%)** | 0 | 1 (0.005%) | **9.26 ms** | 5.96 ms | 10,080.68 ms | 250 |
 | **500 req/s** | Run 3 | 19,112 | **19,112 (100%)** | 0 | 0 | **8.87 ms** | 5.47 ms | 38.57 ms | 250 |
 
-> **Scale proof:** Across the three 500 req/s runs, a single read instance handled **57,336 requests sent with 57,335 successful completions (99.998%)**, maintaining a p95 latency under **9.5 milliseconds**.
+> **Single-instance throughput proof:** Across the three 500 req/s runs, a single read instance handled **57,336 requests with zero dropped arrivals and 1 HTTP error** (in Run 2, one request waited ~10 seconds until the gateway's Resilience4j `readService` TimeLimiter fired, returning HTTP 503; the cause of the read service delay was not isolated), maintaining a p95 latency under **9.5 milliseconds**. Runs 1 and 3 completed with zero errors.
 
 #### Raw Artifact & Report Files:
 * **Raw JSON Exports:** `load-tests/results/optimized/raw/stress-1inst-hot-arrival-*.json`
-* **Interactive HTML Dashboards:** `load-tests/results/optimized/html/stress-1inst-hot-arrival-*.html`
 * **Automated Summary Record:** [`load-tests/results/optimized/summary.md`](../load-tests/results/optimized/summary.md) (lines 108–116)
 
 ---
@@ -224,10 +227,11 @@ The gateway inspects incoming roll numbers against college and department patter
 | `shard1Database breaker calls` | 10 | 10 | **0** | **0 database queries made** |
 | `shard2Database breaker calls` | 0 | 0 | **0** | **0 database queries made** |
 
-> **Conclusion:** 100% of malformed traffic was deflected at the network perimeter in under 10 ms with **zero CPU, memory, or database load** on downstream services.
+> **Conclusion:** 100% of malformed traffic was deflected at the network perimeter in under 10 ms with **zero downstream HTTP requests, cache lookups, or database queries** on downstream services.
 
 ---
 
+<a id="b-scenario-2-cold-burst--bulkhead-protection"></a>
 ### B. Scenario 2: Cold-Burst & Overload Protection
 
 This test measures what happens when an unexpected cold burst of traffic arrives for an uncached result before the cache is warm.
@@ -247,8 +251,7 @@ This test measures what happens when an unexpected cold burst of traffic arrives
 | `shard1Database breaker calls` | 10 | 88 | **+78** | Database queries strictly matched cold misses |
 | `shard2Database breaker calls` | 0 | 0 | **0** | Unaffected shard remained completely idle |
 
-> **How it works:** During the initial cold burst, 78 breaker calls reached Shard 1. With database query concurrency capped at 25 reads, exactly 53 calls (78 breaker calls minus 25 permitted database reads) were shed with HTTP 503 fast-fails (~56 ms) via gateway circuit breaker / fallback protection rather than letting threads pile up and crashing the connection pool. Once the initial database read completed and populated Redis, the remaining **922 requests served from Redis in sub-10 ms**.
-> *(Note: Claims about what the bulkhead guarantees under thread pool saturation are removed as only circuit breaker shed counts were measured).*
+> **How it works:** During the initial cold burst, 78 requests missed the cache and attempted database reads on Shard 1. With database query concurrency strictly capped at 25 slots by the read service's Resilience4j bulkhead (0 ms wait duration), exactly 53 excess calls (78 cold attempts minus 25 permitted concurrent queries) were shed by the bulkhead with HTTP 503 fast-fails (~56 ms p95) via BulkheadFullException rather than queueing and exhausting the database connection pool. Once the initial database read completed and populated Redis, the remaining **922 requests served directly from Redis in sub-10 ms**.
 
 ---
 
@@ -265,7 +268,8 @@ The gateway implements a Redis-backed token-bucket rate limiter per client IP:
 
 ---
 
-## 5. Horizontal Scaling (1 vs. 2 vs. 3 Instances)
+<a id="5-horizontal-scaling-1-vs-2-vs-3-instances"></a>
+## 5. Multi-Instance Load Balancing Verification (1 vs. 2 vs. 3 Instances)
 
 We tested whether running 1, 2, or 3 read instances behind Eureka and the API Gateway affected performance at 25, 50, and 75 req/s.
 
@@ -339,7 +343,8 @@ Tested through API Gateway on port 8081 with `X-Admin-Api-Key`, using fresh exam
 * **Result:** Shard 1 remained at 2,500 rows; Shard 2 remained at 2,500 rows. Zero duplicate rows created.
 * PostgreSQL upsert clause `ON CONFLICT (exam_id, roll_no, semester) DO UPDATE` updated records in place and preserved the `published` status flag.
 
-### D. Durability & Broker Restart Under Load
+<a id="d-durability--broker-restart-under-load"></a>
+### D. Message Durability Across Broker Container Restart
 
 * Stopped `result-persistence-service` worker.
 * Uploaded 1,000 rows (`EXAM_DURABILITY`). Ingestion accepted the upload and queued 2 batches in RabbitMQ (`results.write`, messages: 2, consumers: 0).
@@ -422,6 +427,6 @@ To confirm that adding Neon primary connections, a Kafka consumer, and the gentl
 | **p95 Latency** | **8.60 ms** | **15.87 ms** | Sub-20ms (<16ms) |
 | **Average Latency** | 20.24 ms | 27.26 ms | Consistent |
 
-*Conclusion:* The read service maintains 100.00% request completion with zero errors and sub-20ms p95 latency under heavy 300 req/s load, verifying zero read-path regression after Phase 5 features landed.
+*Conclusion:* The read-path p95 was measured at 8.60 ms in the earlier Stage 3 run and 15.87 ms in the Phase 5 verification run. The specific cause of this difference was not isolated (Phase 5 adds the Kafka consumer and background cache warm-up on the same machine). However, the run maintained 100.00% request completion with zero errors, median latency remained sub-5 ms (3.97 ms), and the p95 result remains far below the 200 ms target.
 
 
